@@ -468,6 +468,8 @@ class TurnRunner:
             needs=needs_list,
             seen_phases=seen_phases,
             seen_techniques=seen_techniques,
+            current_round=current_round,
+            is_rewrite=rewrite_hint is not None,
         )
         yield ("quill", quill_lines)
 
@@ -664,6 +666,8 @@ class TurnRunner:
             needs=needs_list,
             seen_phases=seen_phases,
             seen_techniques=seen_techniques,
+            current_round=current_round,
+            is_rewrite=rewrite_hint is not None,
         )
         yield ("quill", quill_lines)
 
