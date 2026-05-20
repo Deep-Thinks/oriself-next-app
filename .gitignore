@@ -43,6 +43,7 @@ Thumbs.db
 .claude/
 .gstack/
 .playwright-mcp/
+.context/
 
 # Ops runtime (pm2 writes logs here via ops/ecosystem.config.cjs)
 logs/
