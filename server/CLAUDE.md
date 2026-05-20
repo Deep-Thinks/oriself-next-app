@@ -127,7 +127,7 @@ ORM 使用 SQLAlchemy 2.x `DeclarativeBase`。三张主表：
 
 - 常量：`MAX_ROUNDS=30`、`DEFAULT_TARGET_ROUNDS=20`、`MIN_CONVERGE_ROUND=6`、`REPORT_MAX_RETRIES=3`、`ONBOARDING_ROUND=1`。
 - `UserPreferences`：`style`、`target_rounds(6..30)`、`pace`、`opening_mood(≤200)`、`note(≤300)`。
-- `ConvergeOutput`：`mbti_type (pattern EI/SN/TF/JP)` + `confidence_per_dim` + 3 段 `InsightParagraph` + `CardData` + `report_html`（1000..80000 chars，必须 `<!doctype html>` + `<html>...</html>`）。向后兼容旧两种 `confidence_per_dim` 形态，最终**以 `confidence_per_dim` 为单一真相源**派生 `mbti_type` 并覆盖 card。
+- `ConvergeOutput`（v2.5.2 起极简）：`mbti_type (pattern EI/SN/TF/JP)` + `card_title (Optional[str], ≤200)` + `report_html`（1000..80000 chars，必须 `<!doctype html>` + `<html>...</html>`）。**没有** `confidence_per_dim` / `insight_paragraphs` / `card`——v2.5.2 起 LLM 直吐 HTML，结构化业务字段全部废弃。`test_results` 表里旧 `confidence_json` 列仍保留：v2.6.1 起重新被填——LLM 在 HTML `<head>` 写 `<meta name="oriself-conf" content="...">`，server 通过 `guardrails.extract_oriself_conf_from_html` 解析为 8 字母 confidence 字典存入（解析见 `ReportRunner.compose`）。失败容错：抽不到 → 留空 `"{}"`，不阻断报告生成。
 
 ## 六、代码地形
 
