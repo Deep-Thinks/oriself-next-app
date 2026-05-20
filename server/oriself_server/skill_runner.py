@@ -735,6 +735,80 @@ class TurnRunner:
 # ---------------------------------------------------------------------------
 
 
+# v2.6.1 · 角色扮演 / 架空世界沉浸检测
+#
+# 触发：用户在前 3 轮 user_message 或 opening_mood 里出现角色代入 / 架空世界
+# 关键词。命中后在 CONVERGE prompt meta_block 后追加提示，让 LLM 把架空叙事
+# 当作 N 信号源（S/N 维度），而不是当噪音清掉再问"现实里你怎么样"。
+#
+# 修复 ba29e5fc 事故：用户前 9 轮全程沉浸蛊真人/修真世界，R10 后被模型拉回
+# 现实，CONVERGE 引用 R8-R21 的现实场景判 S，完全没引用 R1-R7 架空素材 →
+# ENFP 被判 ISTJ。
+#
+# 设计原则（按 codex review §7.5）：
+# - 实时扫 prompt 层，**不入库 flag**（避免 schema 迁移）
+# - 只扫前 3 轮 user_message + opening_mood
+# - 命中**只提升注意力**，不直接改判 N（保留反证空间，避免 false positive）
+_FANTASY_NOUN = (
+    r"(主角|角色|修真|玄幻|科幻|玩家|魔法|游戏|穿越|魔法师|侠|仙人?|妖|"
+    r"怪|英雄|国王|皇帝|武林|江湖|异世界|魔王|勇者|忍者|战士)"
+)
+# v2.6.1 角色扮演正则。Codex review 提的关键约束：把"假设我是 / 我当 / 如果我是
+# / 我是"这种泛指限定到 fantasy 后缀，避免误伤"假设我是 CEO / 我当 leader /
+# 我想当主管 / 假设我是面试官"这种日常工作语境。
+_ROLEPLAY_RE = re.compile(
+    # 强信号：fantasy 触发词本身就足够，无需后缀
+    r"幻想(自己)?是"
+    # 假设/如果/我当/我是 结构 → 必须配 fantasy 后缀
+    rf"|假设我是.{{0,12}}{_FANTASY_NOUN}"
+    rf"|如果我是.{{0,12}}{_FANTASY_NOUN}"
+    rf"|我(想|要)?当.{{0,12}}{_FANTASY_NOUN}"
+    rf"|我是.{{0,12}}{_FANTASY_NOUN}"
+    rf"|成为.{{0,8}}{_FANTASY_NOUN}"
+    # 元层关键词（直接谈"在玩角色"这件事）
+    r"|代入(角色|主角|身份|视角)?"
+    r"|扮演.{0,8}(主角|角色|英雄|侠|仙|魔)?"
+    r"|世界观|异世界|带入(角色|身份|视角)?"
+    # ba29e5fc 真实案例特征：从 X 开始打 / 通关
+    r"|从.{0,8}(开始打|开始通关)"
+)
+
+
+def _detect_roleplay_in_session(session: SessionState) -> bool:
+    """扫前 3 轮 user_message + opening_mood，命中 _ROLEPLAY_RE 即为 True。
+
+    只看 live turns（discarded 不算）。opening_mood 在 R2 写入 prefs，所以
+    第一封信前 3 轮内的角色代入都能覆盖。
+    """
+    # 前 3 个 live user_message
+    live = session.live_turns()
+    for t in live[:3]:
+        if t.user_message and _ROLEPLAY_RE.search(t.user_message):
+            return True
+    # opening_mood（R2 用户输入的"幻想自己是..."这种）
+    prefs = session.user_preferences
+    if prefs is not None and prefs.opening_mood:
+        if _ROLEPLAY_RE.search(prefs.opening_mood):
+            return True
+    return False
+
+
+_ROLEPLAY_HINT_BLOCK = (
+    "\n\n# 角色 / 架空叙事提示（重要）\n"
+    "前 3 轮（或 opening_mood）里出现了角色代入 / 架空世界沉浸"
+    "（修真 / 玄幻 / 科幻 / 游戏 / 主角扮演 / 假设性叙事等）。\n\n"
+    "**CONVERGE 时不要把这段当噪音清掉**——它至少是 **S/N 维度里的 N 信号源**：\n"
+    "- 能长时间停留在一个架空规则系统里 → 注意力可以脱离当下具象，是 N 的内核\n"
+    "- 会主动构建 / 探索 / 演练抽象可能性 → 是 N 的内核\n"
+    "- 用 '如果' / '假设' / '我是 X' 等条件式叙事 → 是 N 的内核\n\n"
+    "**但不要直接判 N**——仍需和后续真实生活场景一起做支持 / 反向证据审查"
+    "（详见 CONVERGE.md 的对抗式审查规则）。架空叙事**是 N 一侧的候选证据**——"
+    "提升注意力让它进入证据池，但权重仍由对抗式审查决定，不是免审通过。\n\n"
+    "**绝对不能因为'幻想里玩的不算'就直接丢弃这段素材**——这正是 ba29e5fc "
+    "把一个 INTJ/INTP 用户判成 ISTJ 的根因。"
+)
+
+
 @dataclass
 class ReportResult:
     output: Optional[ConvergeOutput]
@@ -784,6 +858,10 @@ class ReportRunner:
             f"- 对话总轮数: {len(live)}\n"
             f"- target_rounds_hint: {target}\n"
         )
+
+        # v2.6.1 · 角色扮演 / 架空世界沉浸检测：命中则追加提示
+        if _detect_roleplay_in_session(session):
+            meta_block += _ROLEPLAY_HINT_BLOCK
 
         msgs: List[Message] = [
             Message(role="system", content=system, cache_breakpoint=True),
