@@ -20,20 +20,6 @@ interface Props {
 const DRAFT_PREFIX = "oriself:draft:";
 const DRAFT_DEBOUNCE_MS = 400;
 
-/**
- * 检测用户是不是在 Mac 上。SSR 期间默认非 Mac，首帧 hydrate 后再矫正。
- * 既然这是纯展示用（快捷键提示文案），首帧闪一下不影响功能。
- */
-function detectIsMac(): boolean {
-  if (typeof navigator === "undefined") return false;
-  // 先看新 API `navigator.userAgentData.platform`，兼容老的 platform / userAgent
-  const uaDataPlat = (
-    navigator as unknown as { userAgentData?: { platform?: string } }
-  ).userAgentData?.platform;
-  const plat = uaDataPlat ?? navigator.platform ?? navigator.userAgent ?? "";
-  return /Mac|iPhone|iPad|iPod/i.test(plat);
-}
-
 function readDraft(key: string): string {
   if (typeof window === "undefined") return "";
   try {
@@ -57,7 +43,7 @@ function writeDraft(key: string, value: string): void {
  * Composer · it's a line, not a box.
  *
  * The underline IS the input. On focus the underline turns oxblood.
- * Cmd/Ctrl+Enter sends.
+ * Enter 发送；Shift+Enter 换行；Cmd/Ctrl+Enter 仍兼容（老习惯）。
  *
  * 草稿（ESC 暂存）：
  *  - 输入随时持久化到 localStorage（debounced），下次进同一封信自动恢复。
@@ -67,16 +53,8 @@ function writeDraft(key: string, value: string): void {
 export function Composer({ onSend, disabled, draftKey, prefill }: Props) {
   const [text, setText] = useState("");
   const [savedHint, setSavedHint] = useState(false);
-  // SSR 时先按非 Mac 渲染（Windows/Linux 占多数），hydrate 后矫正；
-  // 避免服务端渲染出 ⌘ 后 Windows 用户看到闪屏
-  const [isMac, setIsMac] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<number | null>(null);
-
-  // 平台检测 · 只跑一次
-  useEffect(() => {
-    setIsMac(detectIsMac());
-  }, []);
 
   // 进入时恢复草稿
   useEffect(() => {
@@ -155,7 +133,12 @@ export function Composer({ onSend, disabled, draftKey, prefill }: Props) {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      // IME 输入法组词中按 Enter 是确认候选，不发送（中文拼音/日文/韩文等）。
+      // e.nativeEvent.isComposing 是标准；keyCode 229 兼容部分浏览器/输入法的占位 keycode。
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
+      // Enter 发送 · Shift+Enter 换行 · Cmd/Ctrl+Enter 兼容老习惯
+      if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
         return;
@@ -203,11 +186,11 @@ export function Composer({ onSend, disabled, draftKey, prefill }: Props) {
         />
 
         <div className="flex justify-between items-center mt-[14px] font-mono text-[10px] tracking-wide uppercase text-ink-muted">
-          {/* 移动端没有 Ctrl / ESC，只保留「暂存」一行状态；桌面保留完整快捷键提示。 */}
+          {/* 移动端没有 Enter / ESC，只保留「暂存」一行状态；桌面保留完整快捷键提示。 */}
           <span aria-live="polite" className="hidden sm:inline">
             {savedHint
               ? "已暂存 · 下次回来还在"
-              : `${isMac ? "⌘" : "Ctrl"} ↵ 发送 · ESC 暂存`}
+              : "↵ 发送 · Shift+↵ 换行 · ESC 暂存"}
           </span>
           <span aria-live="polite" className="sm:hidden">
             {savedHint ? "已暂存" : "轻点 → 发送"}
