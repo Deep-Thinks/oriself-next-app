@@ -21,7 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .schemas import MAX_ROUNDS
 
@@ -203,6 +203,146 @@ def verify_report_html_parseable(html: str) -> GuardrailResult:
             "疑似截断或仅输出了样式/脚本块"
         )
     return GuardrailResult.ok()
+
+
+class _MetaConfCollector(HTMLParser):
+    """专门抽 <meta name="oriself-conf" content="..."> 的 content 字符串。
+
+    用独立 parser 而不是复用 _TextCollector：meta 在 <head> 里，
+    _TextCollector 是为可见文本抽取设计的，把两件事拆开更干净。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.content: Optional[str] = None
+
+    def handle_starttag(self, tag: str, attrs) -> None:  # type: ignore[override]
+        if tag.lower() != "meta":
+            return
+        attr_dict = {
+            (k or "").lower(): v for k, v in attrs if v is not None
+        }
+        if attr_dict.get("name", "").lower() == "oriself-conf":
+            # 首个命中即记下；不覆盖后续（异常重复时取第一个）
+            if self.content is None:
+                self.content = attr_dict.get("content")
+
+
+# 维度对：每对里第一个字母固定为 "通常被视为外向/感知/思考/判断" 那一面。
+# 解析时只关心字母属于哪个 pair，顺序无关。
+_DIM_PAIRS: Tuple[Tuple[str, str], ...] = (
+    ("E", "I"),
+    ("S", "N"),
+    ("T", "F"),
+    ("J", "P"),
+)
+_ALL_MBTI_LETTERS = frozenset("EISNTFJP")
+
+
+def _parse_oriself_conf(raw: str) -> Dict[str, float]:
+    """解析 "I:0.65,N:0.55,T:0.85,J:0.65" 形式为完整 8 字母 confidence 字典。
+
+    规则（详见 CONVERGE.md "confidence 写进 HTML meta 标记" 章节）：
+    - 4 段，逗号分隔
+    - 每段 "<胜出字母>:<float>"，胜出字母 ∈ {E,I,S,N,T,F,J,P}
+    - 4 个胜出字母必须覆盖 4 个维度（每维度恰好一个）
+    - 数值范围 [0.50, 1.00]
+    - 互补字母 confidence 由本函数自动算（1 - 胜出 confidence）
+
+    返回完整 8 字母字典；任何违反 → 返回空 {}。**不抛异常**——meta 容错。
+    """
+    parts = [p.strip() for p in raw.split(",")]
+    if len(parts) != 4:
+        return {}
+
+    result: Dict[str, float] = {}
+    seen_pair_idx: set[int] = set()
+    for part in parts:
+        if ":" not in part:
+            return {}
+        letter, _, val = part.partition(":")
+        letter = letter.strip().upper()
+        if letter not in _ALL_MBTI_LETTERS:
+            return {}
+        pair_idx: Optional[int] = None
+        for i, pair in enumerate(_DIM_PAIRS):
+            if letter in pair:
+                pair_idx = i
+                break
+        if pair_idx is None:
+            return {}
+        if pair_idx in seen_pair_idx:
+            return {}  # 同一维度被写了两次
+        seen_pair_idx.add(pair_idx)
+        try:
+            conf = float(val.strip())
+        except ValueError:
+            return {}
+        if not (0.50 <= conf <= 1.00):
+            return {}
+        result[letter] = round(conf, 4)
+        pair = _DIM_PAIRS[pair_idx]
+        other = pair[0] if pair[1] == letter else pair[1]
+        result[other] = round(1.0 - conf, 4)
+
+    # 4 个维度全部覆盖
+    if len(seen_pair_idx) != 4 or len(result) != 8:
+        return {}
+    return result
+
+
+def extract_oriself_conf_from_html(html: str) -> Dict[str, float]:
+    """从 <meta name="oriself-conf" content="…"> 抽 confidence 字典。
+
+    完整契约见 `skill-repo/skills/oriself/CONVERGE.md` 的 "confidence 写进
+    HTML meta 标记" 章节。LLM 在 HTML <head> 里写：
+
+        <meta name="oriself-conf" content="I:0.65,N:0.55,T:0.85,J:0.65">
+
+    本函数：
+    - 用 HTMLParser 找 meta（兼容 attribute 任意顺序）
+    - 用 `_parse_oriself_conf` 校验 + 解析格式
+    - 自动计算互补字母 confidence（1 - 胜出 confidence）
+
+    抽不到 / 格式错误 → 返回 `{}`。**不抛异常**——meta 是数据可追溯性
+    的努力，不是硬阻断；缺失时 server 写空 `confidence_json` 但仍然落库。
+    """
+    if not html:
+        return {}
+    collector = _MetaConfCollector()
+    try:
+        collector.feed(html)
+        collector.close()
+    except Exception:
+        return {}
+    raw = collector.content
+    if not raw:
+        return {}
+    return _parse_oriself_conf(raw)
+
+
+def confidence_matches_mbti(conf: Dict[str, float], mbti_type: str) -> bool:
+    """检查 confidence dict 里"胜出字母"是否与 HTML 正文里的 mbti_type 一致。
+
+    胜出字母 = confidence >= 0.50 的字母（边界 0.50 视为胜出，覆盖 uncertain
+    维度允许 [0.50, 0.55] 的语义）。
+
+    用于侦测**矛盾报告**：LLM 在可见 HTML 写 `INTJ` 但在 meta 里写
+    `E:0.65,N:0.55,T:0.85,J:0.65`。这种"可信但错误"的数据会污染 confidence_json，
+    应在 ReportRunner.compose 阶段触发 retry，而不是写进 DB。
+
+    - 空 conf → 返回 True（meta 缺失走容错路径，不算矛盾）。
+    - mbti_type 不是 4 字符 → 返回 False（防御性，理论上不会发生）。
+    """
+    if not conf:
+        return True
+    if not mbti_type or len(mbti_type) != 4:
+        return False
+    for letter in mbti_type.upper():
+        c = conf.get(letter)
+        if c is None or c < 0.50:
+            return False
+    return True
 
 
 def extract_card_title_from_html(html: str) -> Optional[str]:

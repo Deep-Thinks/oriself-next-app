@@ -214,7 +214,14 @@ def _load_session_state(db: Session, session_id: str) -> SessionState:
 
 @router.post("", response_model=CreateLetterResponse)
 def create_letter(req: CreateLetterRequest, db: Session = Depends(get_db)):
-    sess = TestSession(provider=req.provider, domain=req.domain)
+    # skill_version 实读 SKILL.md frontmatter，别用 models 里那个写死的兜底值。
+    bundle = load_skill_bundle()
+    skill_version = str(bundle.skill_meta.get("version") or "unknown")
+    sess = TestSession(
+        provider=req.provider,
+        domain=req.domain,
+        skill_version=skill_version,
+    )
     db.add(sess)
     db.commit()
     db.refresh(sess)
@@ -694,18 +701,25 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
         safe_html = sanitize_report_html(co.report_html)
         title = co.card_title or co.mbti_type  # 兜底：抽不到 <title> 就用 MBTI 字母
 
+        # v2.6.1 · confidence_json 从 LLM 在 HTML <meta name="oriself-conf"> 写的
+        # 8 字母 confidence dict 序列化而来；抽不到时为空 "{}"。
+        # insight_json / card_json 仍废弃（v2.5.2 起 LLM 直吐 HTML）。
+        # 模型声明 nullable=True，但生产 v2.4 建的 SQLite 老库上这三列仍带 NOT NULL
+        # 约束（create_all 不会 in-place 放宽），写 None 会 IntegrityError。
+        # 空 JSON 对象 "{}" 两面都满足 —— 新库 nullable 无所谓，老库 NOT NULL 也通过。
+        confidence_json = (
+            json.dumps(result.confidence_per_dim, ensure_ascii=False, sort_keys=True)
+            if result.confidence_per_dim
+            else "{}"
+        )
+
         db.add(
             TestResult(
                 session_id=letter_id,
                 mbti_type=co.mbti_type,
-                # v2.5.2 起不再存 insight/card/confidence 结构化字段。
-                # 模型声明 nullable=True，但生产 v2.4 建的 SQLite 老库上这三列
-                # 仍带 NOT NULL 约束（create_all 不会 in-place 放宽），写 None
-                # 会 IntegrityError。空 JSON 对象 "{}" 两面都满足 —— 新库 nullable
-                # 无所谓，老库 NOT NULL 也通过。
                 insight_json="{}",
                 card_json="{}",
-                confidence_json="{}",
+                confidence_json=confidence_json,
                 issue_slug=slug,
                 issue_title=title,
                 issue_html=safe_html,

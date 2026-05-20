@@ -33,7 +33,9 @@ from .guardrails import (
     strip_markdown_fence,
     verify_report_html_parseable,
     verify_report_html_shape,
+    confidence_matches_mbti,
     extract_card_title_from_html,
+    extract_oriself_conf_from_html,
 )
 from .llm_client import LLMBackend, Message, Pass1Result, ToolCallRequest
 from .quill import derive_lines as _derive_quill_lines
@@ -734,6 +736,10 @@ class ReportResult:
     output: Optional[ConvergeOutput]
     retries: int
     error_reasons: List[str]
+    # v2.6.1 · LLM 在 HTML <head> 写的 <meta name="oriself-conf"> 解析结果。
+    # 完整 8 字母 confidence 字典（胜出字母 + 互补字母）。抽不到 → {}。
+    # routes/letters.py 写入 test_results.confidence_json 时序列化。
+    confidence_per_dim: Dict[str, float] = field(default_factory=dict)
 
 
 class ReportRunner:
@@ -840,6 +846,30 @@ class ReportRunner:
                 continue
 
             card_title = extract_card_title_from_html(html)
+            # v2.6.1 · 从 <meta name="oriself-conf"> 抽 8 字母 confidence。
+            # 抽不到 / 格式错 → 空 dict（容错语义，不阻断报告生成）。
+            confidence_per_dim = extract_oriself_conf_from_html(html)
+            if not confidence_per_dim:
+                logger.info(
+                    "converge attempt %d: oriself-conf meta missing/invalid; "
+                    "confidence_per_dim will be empty",
+                    attempt + 1,
+                )
+            # v2.6.1 · 矛盾检测：LLM 可能在可见 HTML 写 mbti=INTJ 但在 meta 里写
+            # 反向字母（E:0.65,...）。这种"可信但错误"的数据比 missing 更危险——
+            # 会污染下游 calibration。这里 retry，让 LLM 重新生成（最多 3 次后失败）。
+            elif not confidence_matches_mbti(confidence_per_dim, mbti_type):
+                last_reasons = [
+                    f"oriself-conf meta 与 HTML 正文 mbti={mbti_type!r} 矛盾："
+                    f"meta confidence={confidence_per_dim}。请确保 meta 里 "
+                    "胜出字母（confidence >= 0.50 的那 4 个）正好拼出 mbti_type。"
+                ]
+                logger.info(
+                    "converge attempt %d: meta vs mbti mismatch: %s",
+                    attempt + 1,
+                    last_reasons,
+                )
+                continue
 
             try:
                 output = ConvergeOutput(
@@ -854,7 +884,12 @@ class ReportRunner:
                 )
                 continue
 
-            return ReportResult(output=output, retries=attempt, error_reasons=[])
+            return ReportResult(
+                output=output,
+                retries=attempt,
+                error_reasons=[],
+                confidence_per_dim=confidence_per_dim,
+            )
 
         return ReportResult(
             output=None, retries=REPORT_MAX_RETRIES, error_reasons=last_reasons
