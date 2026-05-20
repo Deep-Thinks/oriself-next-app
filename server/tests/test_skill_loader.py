@@ -54,7 +54,7 @@ def test_load_skill_bundle_smoke():
     assert bundle.skill_md, "SKILL.md body not loaded"
     # frontmatter 解析出来
     assert bundle.skill_meta.get("name") == "oriself"
-    assert bundle.skill_meta.get("version") == "2.6.0"
+    assert bundle.skill_meta.get("version") == "2.6.1"
     # reference 文件全到位
     assert "ethos" in bundle.refs
     assert "converge" in bundle.refs
@@ -160,21 +160,21 @@ def test_conversation_prompt_byte_size_reasonable():
     - v2.5.0 初始：R12 phase-deep ≈ 35KB，R18 soft-closing ≈ 26KB
     - v2.5.1：+ mbti 信号清单 / phase-deep 二选一禁令 / phase-exploring
       协作强制+诗意回拉+silent 抢救 → R12 ≈ 40KB
-    断言上限 42KB（v2.4 基线），主要防止退化：有人把 techniques 又固定塞回去
-    会立刻 > 45KB。
+    断言上限 v2.6.1 起 46KB · 给 SKILL.md 升华腔自查 / phase-deep 维度自标 等
+    prompt 增量留窗口；主要防止退化：有人把 techniques 又固定塞回去会立刻 > 50KB。
     """
     bundle = load_skill_bundle(SKILL_ROOT)
     p_deep = bundle.compose_conversation_prompt(
         domain="mbti", phase_key="phase-deep", current_round=12
     )
     size = len(p_deep.encode("utf-8"))
-    assert size < 42_000, f"R12 phase-deep prompt {size} bytes, 预期 < 42KB"
+    assert size < 46_000, f"R12 phase-deep prompt {size} bytes, 预期 < 46KB"
 
     # 收束期更短（needs=[]）
     p_close = bundle.compose_conversation_prompt(
         domain="mbti", phase_key="phase-soft-closing", current_round=18
     )
-    assert len(p_close.encode("utf-8")) < 32_000
+    assert len(p_close.encode("utf-8")) < 35_000
 
 
 # ---------------------------------------------------------------------------

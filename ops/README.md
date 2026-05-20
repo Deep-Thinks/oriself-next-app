@@ -24,9 +24,9 @@ cat > .env <<EOF
 ORISELF_PROVIDER=gemini
 ORISELF_GEMINI_API_KEY=sk-xxx
 ORISELF_GEMINI_BASE_URL=https://api.302.ai/v1
-# 可选 · 端口默认 8000 / 3000
+# 可选 · 端口默认 8000 / 3003
 # ORISELF_SERVER_PORT=8000
-# ORISELF_WEB_PORT=3000
+# ORISELF_WEB_PORT=3003
 EOF
 
 # 5) 启
@@ -50,17 +50,35 @@ EOF
 | `./ops/oriself.sh deploy` | `git pull → pip install -e . → pnpm build → reload → health` 一条龙 |
 | `./ops/oriself.sh kill` | pm2 delete（进程表也清掉） |
 
+## 只动了后端 / skill（不碰 web）
+
+skill bump 或纯 server 改动时，web 产物无需重建，跳过最重的一步即可：
+
+```bash
+git pull origin main
+git submodule update --init --recursive       # skill-repo 跟到 pinned commit
+cd server && .venv/bin/pip install -e . -q && cd ..
+pm2 restart oriself-server                     # 只重启后端
+pm2 save
+curl -s http://127.0.0.1:8000/health           # 验证 {"status":"ok"}
+```
+
+web 有源码改动时才需要 `cd web && pnpm build` 后再 `pm2 restart oriself-web`。
+`./ops/oriself.sh deploy` 是「全量」路径（含 web 重建），二者按改动面择一。
+
 ## 架构
 
 两个 pm2 app：
 
 ```
 oriself-server  · python3 -m uvicorn oriself_server.main:app  @ 127.0.0.1:8000
-oriself-web     · node    node_modules/next/dist/bin/next start -p 3000  @ 127.0.0.1:3000
+oriself-web     · node    node_modules/next/dist/bin/next start -p 3003  @ 127.0.0.1:3003
 ```
 
+端口可经 `ORISELF_SERVER_PORT` / `ORISELF_WEB_PORT` 覆盖（见 `ecosystem.config.cjs`），默认 `8000 / 3003`。
+
 web 通过 `API_INTERNAL_URL=http://127.0.0.1:8000` 反代到 server；外部 nginx / caddy
-把 443 打到 web 的 3000 即可，server 不对外。
+把 443 打到 web 的 3003 即可，server 不对外。
 
 ## 文件
 

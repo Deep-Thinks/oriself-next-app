@@ -43,7 +43,9 @@ class TestSession(Base):
     )
     provider = Column(String(20), nullable=False)
     domain = Column(String(20), nullable=False, default="mbti")
-    skill_version = Column(String(16), nullable=False, default="2.5.2")
+    # 实际版本在建 letter 时由 SKILL.md frontmatter 写入（见 routes/letters.create_letter）；
+    # 这个 default 只是兜底，不该再当真值用。
+    skill_version = Column(String(16), nullable=False, default="unknown")
     status = Column(String(20), default="active")  # active | completed | failed
     # v2.4 · 收敛 prompt 需要的偏好信息；R2 服务端解析后写入
     prefs_json = Column(Text)

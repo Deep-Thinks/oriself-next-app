@@ -549,7 +549,7 @@ PROVIDER_PRESETS: dict[str, dict] = {
             or ""  # 空串 → make_backend 里会报错
         ),
         "model_env": "ORISELF_GEMINI_MODEL",
-        "default_model": "gemini-3-flash-preview",
+        "default_model": "gemini-3.5-flash",
         # api_key 同时接受 ORISELF_GEMINI_API_KEY / GEMINI_API_KEY
         "api_key_env": "ORISELF_GEMINI_API_KEY",
         "api_key_env_fallback": "GEMINI_API_KEY",
@@ -561,10 +561,17 @@ PROVIDER_PRESETS: dict[str, dict] = {
         "api_key_env": "ORISELF_QWEN_API_KEY",
     },
     "deepseek": {
-        "base_url": "https://api.deepseek.com/v1",
+        # base_url 可被 env 覆盖（走中转时用）；未设时回落官方端点。
+        "base_url": (
+            os.environ.get("ORISELF_DEEPSEEK_BASE_URL")
+            or os.environ.get("DEEPSEEK_BASE_URL")
+            or "https://api.deepseek.com/v1"
+        ),
         "model_env": "ORISELF_DEEPSEEK_MODEL",
         "default_model": "deepseek-chat",
+        # api_key 同时接受 ORISELF_DEEPSEEK_API_KEY / DEEPSEEK_API_KEY
         "api_key_env": "ORISELF_DEEPSEEK_API_KEY",
+        "api_key_env_fallback": "DEEPSEEK_API_KEY",
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1",
