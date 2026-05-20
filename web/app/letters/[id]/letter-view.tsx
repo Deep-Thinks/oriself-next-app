@@ -52,6 +52,8 @@ export function LetterView({
 
   const [turns, setTurns] = useState<TurnRecord[]>(initialTurns);
   const [isStreaming, setIsStreaming] = useState(false);
+  // 收信生成报告 in-flight 锁 · 防止双击 / 自动 CONVERGE 与手动按钮并发
+  const [isConverging, setIsConverging] = useState(false);
   const [lastStatus, setLastStatus] = useState<TurnStatus | null>(
     initialState.last_status ?? null,
   );
@@ -129,6 +131,9 @@ export function LetterView({
   }, []);
 
   const handleConverge = useCallback(async () => {
+    // 防双击 / 防与自动 CONVERGE 并发：手动按钮 + 流末尾自动调用可能同时触发
+    if (isConverging) return;
+    setIsConverging(true);
     try {
       const result = await composeResult(letterId);
       if (result.issue_slug) {
@@ -143,11 +148,14 @@ export function LetterView({
         router.push(`/issues/${result.issue_slug}?arrived=1`);
       } else {
         setError("报告生成成功但没有 issue slug，请刷新页面");
+        setIsConverging(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "报告生成卡住了，稍后再试");
+      setIsConverging(false);
     }
-  }, [letterId, router]);
+    // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
+  }, [letterId, router, isConverging]);
 
   // ============================================================
   // 发送一轮
@@ -263,6 +271,13 @@ export function LetterView({
 
   const currentRound = Math.max(...turns.map((t) => t.round), 0);
 
+  // 第 6 轮起允许用户主动收信生成报告（后端 MIN_CONVERGE_ROUND = 6，POST
+  // /letters/:id/result 在 round >= 6 时接受）。此前 UI 上没暴露这个能力，
+  // 用户被锁在"AI 决定何时结束"的模式里 → 反馈里 5/6 命中"对话节奏焦虑"。
+  // 显式的"现在收信"按钮把 agency 还给用户。
+  const canRequestResult =
+    currentRound >= 6 && !isCompleted && !isStreaming && !isConverging;
+
   const lastOriselfIdx = (() => {
     for (let i = turns.length - 1; i >= 0; i--) {
       if (turns[i].speaker === "oriself") return i;
@@ -350,7 +365,7 @@ export function LetterView({
             <div key={`${turn.round}-${turn.speaker}-${i}`}>
               <Turn turn={turn} streaming={showStreaming} />
               {isLastOriself && !isStreaming && !isCompleted && (
-                <div className="-mt-10 mb-14 pl-0">
+                <div className="-mt-10 mb-14 pl-0 flex items-center gap-7 flex-wrap">
                   <button
                     type="button"
                     onClick={handleRewrite}
@@ -360,6 +375,16 @@ export function LetterView({
                   >
                     让 Oriself 重写 <span className="not-italic">↻</span>
                   </button>
+                  {canRequestResult && (
+                    <button
+                      type="button"
+                      onClick={handleConverge}
+                      className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer"
+                      aria-label="现在收信 · 生成你的报告"
+                    >
+                      现在收信 <span className="font-mono not-italic">→</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
