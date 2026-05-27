@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { LandingEnterLink } from "@/components/home/landing-enter-link";
 import { RecentLetters } from "@/components/home/recent-letters";
 import { APP_VERSION, getServerVersion } from "@/lib/version";
 
@@ -42,13 +42,11 @@ export default async function LandingPage() {
           聊 10 分钟，留下一封写给自己的信
         </p>
 
-        {/* Entry — small, off-white-on-ink button-less link */}
-        <Link
-          href="/letters/new"
-          className="mt-20 inline-block fraunces-body-soft italic text-accent text-[18px] border-b border-accent pb-1 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:text-accent-soft hover:border-accent-soft"
-        >
+        {/* Entry — small, off-white-on-ink button-less link
+            v2.7 A-6 · 用 LandingEnterLink (client wrapper) 加 onClick 埋点 */}
+        <LandingEnterLink className="mt-20 inline-block fraunces-body-soft italic text-accent text-[18px] border-b border-accent pb-1 transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:text-accent-soft hover:border-accent-soft">
           进入 →
-        </Link>
+        </LandingEnterLink>
       </section>
 
       {/* Recent letters · local-only, shown only if there are entries */}

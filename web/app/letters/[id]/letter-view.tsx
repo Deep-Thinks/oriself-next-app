@@ -8,6 +8,7 @@ import { Composer } from "@/components/letter/composer";
 import { ConvergingOverlay } from "@/components/letter/converging-overlay";
 import { Turn } from "@/components/letter/turn";
 import { AuthorModal } from "@/components/primitives/author-modal";
+import { trackEvent } from "@/lib/analytics";
 import { composeResult, rewriteLastTurn, sendTurnStream } from "@/lib/api";
 import { upsertLetter } from "@/lib/history";
 import type { LetterState, TurnRecord, TurnStatus } from "@/lib/types";
@@ -66,6 +67,10 @@ export function LetterView({
   // mono 小字解释按钮含义；用 sessionStorage 标记同一封信不再重复（Probe #16 反馈）
   const [showConvergeHint, setShowConvergeHint] = useState(false);
   const convergeHintShownRef = useRef(false);
+  // A-6 · runConverge 的 in-flight ref lock；防 retry 双击 / auto+manual 并发
+  // 进入并发的双倍 composeResult 调用（isConverging state 在 retry 路径仍是 true，
+  // 不能用作幂等检查；ref 更稳）
+  const convergeInFlightRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   // 自动滚到最新
@@ -86,6 +91,21 @@ export function LetterView({
       issueSlug: issueSlug ?? undefined,
     });
   }, [letterId, initialTurns, initialState.status, issueSlug]);
+
+  // A-6 · letter_created 埋点（只在第一次进信、且没有 turn 时打——这是新建路径）
+  // 用 sessionStorage 同 letterId 防 reload 重复
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (initialTurns.length > 0) return; // 回看不算 created
+    const key = `oriself:tracked-create-${letterId}`;
+    try {
+      if (window.sessionStorage.getItem(key)) return;
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      // storage 不可用时仍发一次，宁可重复也不漏（漏斗顶端不能丢）
+    }
+    trackEvent("letter_created", { letter_id: letterId }, letterId);
+  }, [letterId, initialTurns.length]);
 
   // ============================================================
   // 流式辅助
@@ -131,48 +151,75 @@ export function LetterView({
   }, []);
 
   // 内部：真正跑收信流程，不查 isConverging lock。retry 走它，避免闭包读旧 state。
-  const runConverge = useCallback(async () => {
-    setIsConverging(true);
-    setError(null);
-    // A-2 · 用户已点击收信，hint 任务完成，主动 dismiss 避免它在 overlay 后还残留
-    setShowConvergeHint(false);
-    try {
-      const result = await composeResult(letterId);
-      if (result.issue_slug) {
-        upsertLetter({
-          letterId,
-          status: "completed",
-          issueSlug: result.issue_slug,
-          mbtiType: result.mbti_type,
-          cardTitle: result.card_title ?? undefined,
-        });
-        // ?arrived=1 触发 issue 页的封缄时刻；之后 router.replace 会把它抹掉
-        router.push(`/issues/${result.issue_slug}?arrived=1`);
-        // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
-      } else {
-        // A-1 · 失败保留 isConverging=true，让 ConvergingOverlay 切到错误态
-        // 等用户从 overlay 选「再试一次」或「先回去再聊几句」
+  // A-6 · 加 trigger 参数区分 manual / auto / retry 漏斗源
+  // ref-based in-flight lock 防 retry 双击 / 并发触发双倍 composeResult（Codex P1）
+  const runConverge = useCallback(
+    async (trigger: "manual" | "auto" | "retry") => {
+      if (convergeInFlightRef.current) return;
+      convergeInFlightRef.current = true;
+      trackEvent("converge_clicked", { trigger, letter_id: letterId }, letterId);
+      setIsConverging(true);
+      setError(null);
+      // A-2 · 用户已点击收信，hint 任务完成，主动 dismiss
+      setShowConvergeHint(false);
+      try {
+        const result = await composeResult(letterId);
+        if (result.issue_slug) {
+          upsertLetter({
+            letterId,
+            status: "completed",
+            issueSlug: result.issue_slug,
+            mbtiType: result.mbti_type,
+            cardTitle: result.card_title ?? undefined,
+          });
+          trackEvent(
+            "converge_result_success",
+            { letter_id: letterId, issue_slug: result.issue_slug },
+            letterId,
+          );
+          // ?arrived=1 触发 issue 页的封缄时刻；之后 router.replace 会把它抹掉
+          router.push(`/issues/${result.issue_slug}?arrived=1`);
+          // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
+        } else {
+          // A-1 · 失败保留 isConverging=true，让 ConvergingOverlay 切到错误态
+          setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
+          trackEvent(
+            "converge_result_failed",
+            { letter_id: letterId, reason: "no_issue_slug" },
+            letterId,
+          );
+        }
+      } catch (err) {
+        console.error("[converge] failed:", err);
         setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
+        trackEvent(
+          "converge_result_failed",
+          {
+            letter_id: letterId,
+            reason: err instanceof Error ? err.message.slice(0, 200) : "unknown",
+          },
+          letterId,
+        );
+      } finally {
+        // 释放 in-flight lock。成功 path 也会执行（router.push 跳走前），
+        // 但组件即将卸载所以不影响。retry/failure path 必须释放才能让下次 retry 启动。
+        convergeInFlightRef.current = false;
       }
-    } catch (err) {
-      // 保留 raw 给 console.error，UI 显示固定友好文案；'UPSTREAM_LLM_*' 这种
-      // 内部 token 不给用户看（Codex P1）
-      console.error("[converge] failed:", err);
-      setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
-    }
-  }, [letterId, router]);
+    },
+    [letterId, router],
+  );
 
   const handleConverge = useCallback(async () => {
     // 公开入口 · 防双击 / 防与自动 CONVERGE 并发：
     // 手动按钮 + 流末尾自动调用可能同时触发
     if (isConverging) return;
-    await runConverge();
+    await runConverge("manual");
   }, [isConverging, runConverge]);
 
   // A-1 · overlay 错误态的两个出口
   const handleOverlayRetry = useCallback(() => {
     // 直接调 runConverge，不经 handleConverge 的 lock 检查；闭包安全
-    void runConverge();
+    void runConverge("retry");
   }, [runConverge]);
 
   const handleOverlayDismiss = useCallback(() => {
@@ -213,8 +260,18 @@ export function LetterView({
           roundCount: done.round,
           status: "active",
         });
+        // A-6 · 漏斗里程碑 round=1/3/6/10 埋点
+        if ([1, 3, 6, 10].includes(done.round)) {
+          trackEvent(
+            "round_reached",
+            { round: done.round, letter_id: letterId },
+            letterId,
+          );
+        }
         if (done.status === "CONVERGE") {
-          await handleConverge();
+          // A-6 · 自动 CONVERGE 走 runConverge('auto')，不通过 handleConverge
+          // 避免重复 track 'manual'
+          await runConverge("auto");
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "发送失败，稍后再试");
@@ -230,7 +287,7 @@ export function LetterView({
       appendOriselfToken,
       attachQuillLines,
       finalizeOriselfTurn,
-      handleConverge,
+      runConverge,
     ],
   );
 
@@ -270,7 +327,8 @@ export function LetterView({
         status: "active",
       });
       if (done.status === "CONVERGE") {
-        await handleConverge();
+        // A-6 · 重写后流末尾自动 CONVERGE 也算 auto 触发
+        await runConverge("auto");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "重写失败，稍后再试");
@@ -285,7 +343,7 @@ export function LetterView({
     appendOriselfToken,
     attachQuillLines,
     finalizeOriselfTurn,
-    handleConverge,
+    runConverge,
   ]);
 
   // ============================================================

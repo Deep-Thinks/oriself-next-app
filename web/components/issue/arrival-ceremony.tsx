@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { trackEvent } from "@/lib/analytics";
 
 interface Props {
   slug: string;
 }
+
+type DismissTrigger = "auto" | "keyboard" | "click_view_letter" | "click_copy";
 
 /**
  * ArrivalCeremony · 封缄时刻。
@@ -81,21 +84,25 @@ export function ArrivalCeremony({ slug }: Props) {
     return () => clearInterval(iv);
   }, [phase, displayAddr]);
 
-  const dismiss = useCallback(() => {
-    if (dismissedRef.current) return;
-    dismissedRef.current = true;
-    setLeaving(true);
-    // 让透明度过渡先跑，再替换掉 query；否则会瞬间黑屏
-    setTimeout(() => {
-      setOpen(false);
-      router.replace(`/issues/${slug}`);
-    }, 480);
-  }, [router, slug]);
+  const dismiss = useCallback(
+    (trigger: DismissTrigger = "click_view_letter") => {
+      if (dismissedRef.current) return;
+      dismissedRef.current = true;
+      trackEvent("arrival_dismissed", { trigger, slug });
+      setLeaving(true);
+      // 让透明度过渡先跑，再替换掉 query；否则会瞬间黑屏
+      setTimeout(() => {
+        setOpen(false);
+        router.replace(`/issues/${slug}`);
+      }, 480);
+    },
+    [router, slug],
+  );
 
   // 自动消散
   useEffect(() => {
     if (!open) return;
-    const t = setTimeout(() => dismiss(), 6000);
+    const t = setTimeout(() => dismiss("auto"), 6000);
     return () => clearTimeout(t);
   }, [open, dismiss]);
 
@@ -105,7 +112,7 @@ export function ArrivalCeremony({ slug }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" || e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        dismiss();
+        dismiss("keyboard");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -212,7 +219,7 @@ export function ArrivalCeremony({ slug }: Props) {
         >
           <button
             type="button"
-            onClick={dismiss}
+            onClick={() => dismiss("click_view_letter")}
             className="fraunces-body italic text-[19px] text-accent hover:text-accent-soft border-b border-accent/60 hover:border-accent pb-[3px] transition-colors bg-transparent p-0"
             autoFocus
             aria-label="进入报告"

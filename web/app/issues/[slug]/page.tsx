@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { getIssue } from "@/lib/api";
 import { IssueChrome } from "@/components/issue/issue-chrome";
+import { IssueOpenedTracker } from "@/components/issue/issue-opened-tracker";
 import { HistorySync } from "@/components/history/history-sync";
 import { ArrivalCeremony } from "@/components/issue/arrival-ceremony";
 
@@ -50,6 +51,9 @@ export default async function IssuePage({
         slug={meta.slug}
         letterId={meta.letter_id ?? undefined}
       />
+
+      {/* A-6 · issue_opened 埋点（issue 页 mount 时一次） */}
+      <IssueOpenedTracker slug={meta.slug} letterId={meta.letter_id} />
 
       {/* 直接访问报告链接时，补齐本地历史 */}
       {meta.letter_id && (
