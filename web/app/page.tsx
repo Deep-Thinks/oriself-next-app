@@ -35,6 +35,13 @@ export default async function LandingPage() {
           原自我 · 从你说的话里，长出你自己本来的样子
         </p>
 
+        {/* 期望管理小字 · 告诉用户能拿到什么（Probe 反馈 #6/#14/#19/#21 都误以为是占卜/MBTI 测验）
+            注：tracking-widest+uppercase 是英文栏目标签风，中文长句不适用，降到 tracking-wide；
+            加 max-w + leading-relaxed + px 兜底移动端中文换行。 */}
+        <p className="font-mono text-[10px] tracking-wide text-ink-muted mt-6 text-center max-w-[520px] leading-relaxed px-6">
+          聊 10 分钟，留下一封写给自己的信
+        </p>
+
         {/* Entry — small, off-white-on-ink button-less link */}
         <Link
           href="/letters/new"
