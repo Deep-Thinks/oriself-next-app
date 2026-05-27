@@ -61,6 +61,10 @@ export function LetterView({
   const [authorOpen, setAuthorOpen] = useState(false);
   // halt（NEED_USER）横幅的"暂隐"状态：点「还想接着写」后隐藏，直到下一次 LLM 再喊 halt
   const [haltDismissed, setHaltDismissed] = useState(false);
+  // 「现在收信」按钮首次出现时的解释提示 · 第 6 轮第一次满足条件时淡入一句
+  // mono 小字解释按钮含义；用 sessionStorage 标记同一封信不再重复（Probe #16 反馈）
+  const [showConvergeHint, setShowConvergeHint] = useState(false);
+  const convergeHintShownRef = useRef(false);
   // 空态话题种子预填 · 用 token 触发，同一种子可重复点
   const [prefill, setPrefill] = useState<{
     text: string;
@@ -134,6 +138,8 @@ export function LetterView({
     // 防双击 / 防与自动 CONVERGE 并发：手动按钮 + 流末尾自动调用可能同时触发
     if (isConverging) return;
     setIsConverging(true);
+    // A-2 · 用户已点击收信，hint 任务完成，主动 dismiss 避免它在 overlay 后还残留
+    setShowConvergeHint(false);
     try {
       const result = await composeResult(letterId);
       if (result.issue_slug) {
@@ -278,6 +284,24 @@ export function LetterView({
   const canRequestResult =
     currentRound >= 6 && !isCompleted && !isStreaming && !isConverging;
 
+  // A-2 · 「现在收信」按钮首次满足条件时淡入解释 hint
+  // 用 sessionStorage 同 letterId 记忆，避免每轮都跳出来；storage 不可用时仍展示一次
+  useEffect(() => {
+    if (!canRequestResult) return;
+    if (convergeHintShownRef.current) return;
+    if (typeof window === "undefined") return;
+    const key = `oriself:converge-hint-seen-${letterId}`;
+    let alreadySeen = false;
+    try {
+      alreadySeen = window.sessionStorage.getItem(key) !== null;
+      if (!alreadySeen) window.sessionStorage.setItem(key, "1");
+    } catch {
+      // storage 不可用（无痕 / quota）—— 本次仍展示一次，只是不会跨 reload 记住
+    }
+    convergeHintShownRef.current = true;
+    if (!alreadySeen) setShowConvergeHint(true);
+  }, [canRequestResult, letterId]);
+
   const lastOriselfIdx = (() => {
     for (let i = turns.length - 1; i >= 0; i--) {
       if (turns[i].speaker === "oriself") return i;
@@ -365,26 +389,39 @@ export function LetterView({
             <div key={`${turn.round}-${turn.speaker}-${i}`}>
               <Turn turn={turn} streaming={showStreaming} />
               {isLastOriself && !isStreaming && !isCompleted && (
-                <div className="-mt-10 mb-14 pl-0 flex items-center gap-7 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleRewrite}
-                    className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0"
-                    disabled={isStreaming}
-                    aria-label="让 Oriself 重写这一轮"
-                  >
-                    让 Oriself 重写 <span className="not-italic">↻</span>
-                  </button>
-                  {canRequestResult && (
+                <div className="-mt-10 mb-14 pl-0">
+                  {showConvergeHint && !isCompleted && (
+                    // 渲染条件不绑 canRequestResult：用户点收信后 isConverging=true 会让
+                    // canRequestResult 立即变 false；hint 应该在主动 dismiss 时才消失。
+                    // 用 animate-settle（translateY 10px 起步）比 animate-rise（18px）更柔。
+                    <p
+                      className="mb-3 font-mono text-[10px] tracking-wide text-ink-muted animate-settle max-w-[480px] leading-relaxed"
+                      aria-live="polite"
+                    >
+                      现在已经可以收信；再聊几句会更细。
+                    </p>
+                  )}
+                  <div className="flex items-center gap-7 flex-wrap">
                     <button
                       type="button"
-                      onClick={handleConverge}
-                      className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer"
-                      aria-label="现在收信 · 生成你的报告"
+                      onClick={handleRewrite}
+                      className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0"
+                      disabled={isStreaming}
+                      aria-label="让 Oriself 重写这一轮"
                     >
-                      现在收信 <span className="font-mono not-italic">→</span>
+                      让 Oriself 重写 <span className="not-italic">↻</span>
                     </button>
-                  )}
+                    {canRequestResult && (
+                      <button
+                        type="button"
+                        onClick={handleConverge}
+                        className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer"
+                        aria-label="现在收信 · 生成你的报告"
+                      >
+                        现在收信 <span className="font-mono not-italic">→</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
