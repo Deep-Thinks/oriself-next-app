@@ -11,6 +11,7 @@ from typing import Iterator
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 
 DEFAULT_DB_PATH = Path(os.environ.get("ORISELF_DB_PATH", "oriself_v2.db")).resolve()
@@ -18,12 +19,17 @@ DEFAULT_DB_URL = f"sqlite:///{DEFAULT_DB_PATH}"
 
 
 def make_engine(url: str = DEFAULT_DB_URL) -> Engine:
-    return create_engine(
-        url,
-        echo=False,
-        future=True,
-        connect_args={"check_same_thread": False} if url.startswith("sqlite") else {},
-    )
+    kwargs: dict = {"echo": False, "future": True}
+    if url.startswith("sqlite"):
+        kwargs["connect_args"] = {"check_same_thread": False}
+        # `:memory:` SQLite 的 connection 默认 isolated——每个 connection 看到独立
+        # in-memory DB。测试时 init_db 在 connection A 建表，request handler 在
+        # connection B 跑 INSERT 会失败。StaticPool 让所有 connection 共享一个，
+        # in-memory test 才能正常 work。生产用文件路径不受影响。
+        # 精确判断 in-memory：避免 `sqlite:///path/:memory:-backup.db` 误中。
+        if url in ("sqlite:///:memory:", "sqlite://"):
+            kwargs["poolclass"] = StaticPool
+    return create_engine(url, **kwargs)
 
 
 _engine: Engine | None = None

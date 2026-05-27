@@ -163,3 +163,34 @@ class Feedback(Base):
     __table_args__ = (
         Index("ix_feedback_letter", "letter_id"),
     )
+
+
+class AnalyticsEvent(Base):
+    """v2.7 · 最薄漏斗埋点。
+
+    设计原则（plan v0.3 §1.A-6）：
+    - 只埋"用户视角事件"，不埋"server 视角处理完成"——避开 v2.6.1 logger.info 重复
+    - ip_hash 不存原 IP，单向 sha256（隐私 + 反作弊）
+    - props_json 字段不强 schema，允许各 event 自由附 letter_id / round / trigger 等
+    - 不做查询优化（没有 unique constraint / 复合索引）——这是 v2.7 的最简版，
+      若埋点量起来再考虑物化视图 / clickhouse 迁移
+    """
+
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event = Column(String(64), nullable=False, index=True)
+    # props_json: JSON 字符串，每个 event 自由扩展（letter_id / round / trigger / slug 等）
+    props_json = Column(Text, nullable=True)
+    # session_id 可选 · 关联到 test_sessions（漏斗按 letter 维度聚合时用）
+    session_id = Column(
+        String(36), ForeignKey("test_sessions.session_id"), nullable=True
+    )
+    ip_hash = Column(String(64), nullable=True, index=True)
+    user_agent = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=_utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_analytics_event_created", "event", "created_at"),
+        Index("ix_analytics_session", "session_id"),
+    )
