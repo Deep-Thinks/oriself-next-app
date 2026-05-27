@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Masthead } from "@/components/masthead";
 import { Composer } from "@/components/letter/composer";
+import { ConvergingOverlay } from "@/components/letter/converging-overlay";
 import { Turn } from "@/components/letter/turn";
 import { AuthorModal } from "@/components/primitives/author-modal";
+import { trackEvent } from "@/lib/analytics";
 import { composeResult, rewriteLastTurn, sendTurnStream } from "@/lib/api";
 import { upsertLetter } from "@/lib/history";
 import type { LetterState, TurnRecord, TurnStatus } from "@/lib/types";
@@ -61,11 +63,14 @@ export function LetterView({
   const [authorOpen, setAuthorOpen] = useState(false);
   // halt（NEED_USER）横幅的"暂隐"状态：点「还想接着写」后隐藏，直到下一次 LLM 再喊 halt
   const [haltDismissed, setHaltDismissed] = useState(false);
-  // 空态话题种子预填 · 用 token 触发，同一种子可重复点
-  const [prefill, setPrefill] = useState<{
-    text: string;
-    token: number;
-  } | null>(null);
+  // 「现在收信」按钮首次出现时的解释提示 · 第 6 轮第一次满足条件时淡入一句
+  // mono 小字解释按钮含义；用 sessionStorage 标记同一封信不再重复（Probe #16 反馈）
+  const [showConvergeHint, setShowConvergeHint] = useState(false);
+  const convergeHintShownRef = useRef(false);
+  // A-6 · runConverge 的 in-flight ref lock；防 retry 双击 / auto+manual 并发
+  // 进入并发的双倍 composeResult 调用（isConverging state 在 retry 路径仍是 true，
+  // 不能用作幂等检查；ref 更稳）
+  const convergeInFlightRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   // 自动滚到最新
@@ -86,6 +91,21 @@ export function LetterView({
       issueSlug: issueSlug ?? undefined,
     });
   }, [letterId, initialTurns, initialState.status, issueSlug]);
+
+  // A-6 · letter_created 埋点（只在第一次进信、且没有 turn 时打——这是新建路径）
+  // 用 sessionStorage 同 letterId 防 reload 重复
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (initialTurns.length > 0) return; // 回看不算 created
+    const key = `oriself:tracked-create-${letterId}`;
+    try {
+      if (window.sessionStorage.getItem(key)) return;
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      // storage 不可用时仍发一次，宁可重复也不漏（漏斗顶端不能丢）
+    }
+    trackEvent("letter_created", { letter_id: letterId }, letterId);
+  }, [letterId, initialTurns.length]);
 
   // ============================================================
   // 流式辅助
@@ -130,32 +150,82 @@ export function LetterView({
     });
   }, []);
 
-  const handleConverge = useCallback(async () => {
-    // 防双击 / 防与自动 CONVERGE 并发：手动按钮 + 流末尾自动调用可能同时触发
-    if (isConverging) return;
-    setIsConverging(true);
-    try {
-      const result = await composeResult(letterId);
-      if (result.issue_slug) {
-        upsertLetter({
+  // 内部：真正跑收信流程，不查 isConverging lock。retry 走它，避免闭包读旧 state。
+  // A-6 · 加 trigger 参数区分 manual / auto / retry 漏斗源
+  // ref-based in-flight lock 防 retry 双击 / 并发触发双倍 composeResult（Codex P1）
+  const runConverge = useCallback(
+    async (trigger: "manual" | "auto" | "retry") => {
+      if (convergeInFlightRef.current) return;
+      convergeInFlightRef.current = true;
+      trackEvent("converge_clicked", { trigger, letter_id: letterId }, letterId);
+      setIsConverging(true);
+      setError(null);
+      // A-2 · 用户已点击收信，hint 任务完成，主动 dismiss
+      setShowConvergeHint(false);
+      try {
+        const result = await composeResult(letterId);
+        if (result.issue_slug) {
+          upsertLetter({
+            letterId,
+            status: "completed",
+            issueSlug: result.issue_slug,
+            mbtiType: result.mbti_type,
+            cardTitle: result.card_title ?? undefined,
+          });
+          trackEvent(
+            "converge_result_success",
+            { letter_id: letterId, issue_slug: result.issue_slug },
+            letterId,
+          );
+          // ?arrived=1 触发 issue 页的封缄时刻；之后 router.replace 会把它抹掉
+          router.push(`/issues/${result.issue_slug}?arrived=1`);
+          // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
+        } else {
+          // A-1 · 失败保留 isConverging=true，让 ConvergingOverlay 切到错误态
+          setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
+          trackEvent(
+            "converge_result_failed",
+            { letter_id: letterId, reason: "no_issue_slug" },
+            letterId,
+          );
+        }
+      } catch (err) {
+        console.error("[converge] failed:", err);
+        setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
+        trackEvent(
+          "converge_result_failed",
+          {
+            letter_id: letterId,
+            reason: err instanceof Error ? err.message.slice(0, 200) : "unknown",
+          },
           letterId,
-          status: "completed",
-          issueSlug: result.issue_slug,
-          mbtiType: result.mbti_type,
-          cardTitle: result.card_title ?? undefined,
-        });
-        // ?arrived=1 触发 issue 页的封缄时刻；之后 router.replace 会把它抹掉
-        router.push(`/issues/${result.issue_slug}?arrived=1`);
-      } else {
-        setError("报告生成成功但没有 issue slug，请刷新页面");
-        setIsConverging(false);
+        );
+      } finally {
+        // 释放 in-flight lock。成功 path 也会执行（router.push 跳走前），
+        // 但组件即将卸载所以不影响。retry/failure path 必须释放才能让下次 retry 启动。
+        convergeInFlightRef.current = false;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "报告生成卡住了，稍后再试");
-      setIsConverging(false);
-    }
-    // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
-  }, [letterId, router, isConverging]);
+    },
+    [letterId, router],
+  );
+
+  const handleConverge = useCallback(async () => {
+    // 公开入口 · 防双击 / 防与自动 CONVERGE 并发：
+    // 手动按钮 + 流末尾自动调用可能同时触发
+    if (isConverging) return;
+    await runConverge("manual");
+  }, [isConverging, runConverge]);
+
+  // A-1 · overlay 错误态的两个出口
+  const handleOverlayRetry = useCallback(() => {
+    // 直接调 runConverge，不经 handleConverge 的 lock 检查；闭包安全
+    void runConverge("retry");
+  }, [runConverge]);
+
+  const handleOverlayDismiss = useCallback(() => {
+    setIsConverging(false);
+    setError(null);
+  }, []);
 
   // ============================================================
   // 发送一轮
@@ -190,8 +260,18 @@ export function LetterView({
           roundCount: done.round,
           status: "active",
         });
+        // A-6 · 漏斗里程碑 round=1/3/6/10 埋点
+        if ([1, 3, 6, 10].includes(done.round)) {
+          trackEvent(
+            "round_reached",
+            { round: done.round, letter_id: letterId },
+            letterId,
+          );
+        }
         if (done.status === "CONVERGE") {
-          await handleConverge();
+          // A-6 · 自动 CONVERGE 走 runConverge('auto')，不通过 handleConverge
+          // 避免重复 track 'manual'
+          await runConverge("auto");
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "发送失败，稍后再试");
@@ -207,7 +287,7 @@ export function LetterView({
       appendOriselfToken,
       attachQuillLines,
       finalizeOriselfTurn,
-      handleConverge,
+      runConverge,
     ],
   );
 
@@ -247,7 +327,8 @@ export function LetterView({
         status: "active",
       });
       if (done.status === "CONVERGE") {
-        await handleConverge();
+        // A-6 · 重写后流末尾自动 CONVERGE 也算 auto 触发
+        await runConverge("auto");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "重写失败，稍后再试");
@@ -262,7 +343,7 @@ export function LetterView({
     appendOriselfToken,
     attachQuillLines,
     finalizeOriselfTurn,
-    handleConverge,
+    runConverge,
   ]);
 
   // ============================================================
@@ -277,6 +358,24 @@ export function LetterView({
   // 显式的"现在收信"按钮把 agency 还给用户。
   const canRequestResult =
     currentRound >= 6 && !isCompleted && !isStreaming && !isConverging;
+
+  // A-2 · 「现在收信」按钮首次满足条件时淡入解释 hint
+  // 用 sessionStorage 同 letterId 记忆，避免每轮都跳出来；storage 不可用时仍展示一次
+  useEffect(() => {
+    if (!canRequestResult) return;
+    if (convergeHintShownRef.current) return;
+    if (typeof window === "undefined") return;
+    const key = `oriself:converge-hint-seen-${letterId}`;
+    let alreadySeen = false;
+    try {
+      alreadySeen = window.sessionStorage.getItem(key) !== null;
+      if (!alreadySeen) window.sessionStorage.setItem(key, "1");
+    } catch {
+      // storage 不可用（无痕 / quota）—— 本次仍展示一次，只是不会跨 reload 记住
+    }
+    convergeHintShownRef.current = true;
+    if (!alreadySeen) setShowConvergeHint(true);
+  }, [canRequestResult, letterId]);
 
   const lastOriselfIdx = (() => {
     for (let i = turns.length - 1; i >= 0; i--) {
@@ -313,6 +412,8 @@ export function LetterView({
 
       <main className="relative z-10 max-w-[620px] mx-auto px-6 sm:px-8 pt-[90px] sm:pt-[140px] pb-[170px] sm:pb-[260px]">
         {turns.length === 0 && (
+          // A-3 · 保留 hero（01. 招牌字 + 说明）；种子 chips 已下移到 Composer
+          // 上方紧贴 textarea。这样视觉中心 = hero，操作焦点 = composer。
           <div className="mb-14">
             <span
               className="text-accent"
@@ -334,27 +435,6 @@ export function LetterView({
               <br />
               OriSelf 会逐步为你撰写这封属于你一个人的信。
             </p>
-
-            <div className="mt-12">
-              <p className="font-mono text-[10px] tracking-widest uppercase text-ink-muted mb-4">
-                一时想不起从哪开始 · 点一个自动填到下面
-              </p>
-              <ul className="flex flex-col gap-3 items-start">
-                {SEED_OPENERS.map((seed) => (
-                  <li key={seed}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPrefill({ text: seed, token: Date.now() })
-                      }
-                      className="fraunces-body italic text-[17px] text-accent hover:text-accent-soft border-b border-accent/30 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer text-left"
-                    >
-                      {seed}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
         )}
 
@@ -365,26 +445,39 @@ export function LetterView({
             <div key={`${turn.round}-${turn.speaker}-${i}`}>
               <Turn turn={turn} streaming={showStreaming} />
               {isLastOriself && !isStreaming && !isCompleted && (
-                <div className="-mt-10 mb-14 pl-0 flex items-center gap-7 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={handleRewrite}
-                    className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0"
-                    disabled={isStreaming}
-                    aria-label="让 Oriself 重写这一轮"
-                  >
-                    让 Oriself 重写 <span className="not-italic">↻</span>
-                  </button>
-                  {canRequestResult && (
+                <div className="-mt-10 mb-14 pl-0">
+                  {showConvergeHint && !isCompleted && (
+                    // 渲染条件不绑 canRequestResult：用户点收信后 isConverging=true 会让
+                    // canRequestResult 立即变 false；hint 应该在主动 dismiss 时才消失。
+                    // 用 animate-settle（translateY 10px 起步）比 animate-rise（18px）更柔。
+                    <p
+                      className="mb-3 font-mono text-[10px] tracking-wide text-ink-muted animate-settle max-w-[480px] leading-relaxed"
+                      aria-live="polite"
+                    >
+                      现在已经可以收信；再聊几句会更细。
+                    </p>
+                  )}
+                  <div className="flex items-center gap-7 flex-wrap">
                     <button
                       type="button"
-                      onClick={handleConverge}
-                      className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer"
-                      aria-label="现在收信 · 生成你的报告"
+                      onClick={handleRewrite}
+                      className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0"
+                      disabled={isStreaming}
+                      aria-label="让 Oriself 重写这一轮"
                     >
-                      现在收信 <span className="font-mono not-italic">→</span>
+                      让 Oriself 重写 <span className="not-italic">↻</span>
                     </button>
-                  )}
+                    {canRequestResult && (
+                      <button
+                        type="button"
+                        onClick={handleConverge}
+                        className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer"
+                        aria-label="现在收信 · 生成你的报告"
+                      >
+                        现在收信 <span className="font-mono not-italic">→</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -426,7 +519,9 @@ export function LetterView({
           </div>
         )}
 
-        {error && (
+        {error && !isConverging && (
+          // converging 路径的 error 由 ConvergingOverlay 显示（A-1）；
+          // 这条只承接非 converging 错误（如 sendTurnStream 失败）
           <p className="font-mono text-[11px] tracking-wide uppercase text-accent mt-10">
             {error}
           </p>
@@ -442,9 +537,19 @@ export function LetterView({
           onSend={handleSend}
           disabled={isStreaming}
           draftKey={letterId}
-          prefill={prefill}
+          // A-3 · 空态时把情境 chips 紧贴 textarea 上方；非空态不渲染
+          chips={turns.length === 0 ? SEED_OPENERS : undefined}
         />
       )}
+
+      {/* A-1 · 收信 in-flight overlay · 覆盖手动 handleConverge 和 handleSend 内
+          自动 CONVERGE 两条路径。失败时切到错误态由用户决定再试或回去。 */}
+      <ConvergingOverlay
+        open={isConverging}
+        error={error}
+        onRetry={handleOverlayRetry}
+        onDismiss={handleOverlayDismiss}
+      />
     </>
   );
 }

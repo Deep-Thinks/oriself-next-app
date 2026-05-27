@@ -15,6 +15,13 @@ interface Props {
    * 即便 text 相同也能再次触发（例如用户清空了再点同一个种子）。
    */
   prefill?: { text: string; token: number } | null;
+  /**
+   * A-3 · 空态情境 chips · textarea 上方一排小按钮。点击直接填进 textarea。
+   * 通常只在 `turns.length === 0` 时传；非空态传 undefined / [] 不渲染。
+   * Probe 反馈 #18/#21：首页对话框位置不显眼。把种子 chip 紧贴输入框，
+   * 让"我该从哪儿写"的视觉答案直接落在 composer 上。
+   */
+  chips?: string[];
 }
 
 const DRAFT_PREFIX = "oriself:draft:";
@@ -50,11 +57,33 @@ function writeDraft(key: string, value: string): void {
  *  - ESC = 主动暂存 + 失焦：刷新视觉反馈「刚刚已存」。
  *  - 发送成功后清空草稿。
  */
-export function Composer({ onSend, disabled, draftKey, prefill }: Props) {
+export function Composer({
+  onSend,
+  disabled,
+  draftKey,
+  prefill,
+  chips,
+}: Props) {
   const [text, setText] = useState("");
   const [savedHint, setSavedHint] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<number | null>(null);
+
+  // A-3 · 点 chip 直接填进 textarea + focus；不走 prefill token 那套外部触发机制
+  const handleChipClick = useCallback((chipText: string) => {
+    setText(chipText);
+    requestAnimationFrame(() => {
+      const ta = taRef.current;
+      if (!ta) return;
+      ta.focus();
+      const end = chipText.length;
+      try {
+        ta.setSelectionRange(end, end);
+      } catch {
+        /* 部分受控 textarea 抛错，忽略 */
+      }
+    });
+  }, []);
 
   // 进入时恢复草稿
   useEffect(() => {
@@ -165,6 +194,27 @@ export function Composer({ onSend, disabled, draftKey, prefill }: Props) {
       }}
     >
       <div className="max-w-[620px] mx-auto pointer-events-auto">
+        {/* A-3 · 空态情境 chips · 紧贴 textarea 上方。点击直接填进输入框。
+            移动端：basis-full 让标签独占首行避免挤压（Codex P2）；
+            chip 触控区 min-h-[40px] + px-4 满足 ≥40px 触控规范（Codex P1）。 */}
+        {chips && chips.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2 sm:gap-3 items-center">
+            <span className="font-mono text-[10px] tracking-widest uppercase text-ink-muted basis-full sm:basis-auto sm:mr-2">
+              想不到从哪起 ·
+            </span>
+            {chips.map((chip, idx) => (
+              <button
+                key={`${chip}-${idx}`}
+                type="button"
+                onClick={() => handleChipClick(chip)}
+                disabled={disabled}
+                className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft border border-accent/30 hover:border-accent rounded-full px-4 min-h-[40px] bg-transparent transition-colors disabled:opacity-40 cursor-pointer inline-flex items-center"
+              >
+                {chip}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           ref={taRef}
           rows={1}
