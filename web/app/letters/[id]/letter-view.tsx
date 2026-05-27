@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Masthead } from "@/components/masthead";
 import { Composer } from "@/components/letter/composer";
+import { ConvergingOverlay } from "@/components/letter/converging-overlay";
 import { Turn } from "@/components/letter/turn";
 import { AuthorModal } from "@/components/primitives/author-modal";
 import { composeResult, rewriteLastTurn, sendTurnStream } from "@/lib/api";
@@ -134,10 +135,10 @@ export function LetterView({
     });
   }, []);
 
-  const handleConverge = useCallback(async () => {
-    // 防双击 / 防与自动 CONVERGE 并发：手动按钮 + 流末尾自动调用可能同时触发
-    if (isConverging) return;
+  // 内部：真正跑收信流程，不查 isConverging lock。retry 走它，避免闭包读旧 state。
+  const runConverge = useCallback(async () => {
     setIsConverging(true);
+    setError(null);
     // A-2 · 用户已点击收信，hint 任务完成，主动 dismiss 避免它在 overlay 后还残留
     setShowConvergeHint(false);
     try {
@@ -152,16 +153,37 @@ export function LetterView({
         });
         // ?arrived=1 触发 issue 页的封缄时刻；之后 router.replace 会把它抹掉
         router.push(`/issues/${result.issue_slug}?arrived=1`);
+        // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
       } else {
-        setError("报告生成成功但没有 issue slug，请刷新页面");
-        setIsConverging(false);
+        // A-1 · 失败保留 isConverging=true，让 ConvergingOverlay 切到错误态
+        // 等用户从 overlay 选「再试一次」或「先回去再聊几句」
+        setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "报告生成卡住了，稍后再试");
-      setIsConverging(false);
+      // 保留 raw 给 console.error，UI 显示固定友好文案；'UPSTREAM_LLM_*' 这种
+      // 内部 token 不给用户看（Codex P1）
+      console.error("[converge] failed:", err);
+      setError("信卡住了 · 先稳住，再试一次或回去再聊几句");
     }
-    // 成功 path 不重置 isConverging — router.push 已经跳走，组件即将卸载
-  }, [letterId, router, isConverging]);
+  }, [letterId, router]);
+
+  const handleConverge = useCallback(async () => {
+    // 公开入口 · 防双击 / 防与自动 CONVERGE 并发：
+    // 手动按钮 + 流末尾自动调用可能同时触发
+    if (isConverging) return;
+    await runConverge();
+  }, [isConverging, runConverge]);
+
+  // A-1 · overlay 错误态的两个出口
+  const handleOverlayRetry = useCallback(() => {
+    // 直接调 runConverge，不经 handleConverge 的 lock 检查；闭包安全
+    void runConverge();
+  }, [runConverge]);
+
+  const handleOverlayDismiss = useCallback(() => {
+    setIsConverging(false);
+    setError(null);
+  }, []);
 
   // ============================================================
   // 发送一轮
@@ -463,7 +485,9 @@ export function LetterView({
           </div>
         )}
 
-        {error && (
+        {error && !isConverging && (
+          // converging 路径的 error 由 ConvergingOverlay 显示（A-1）；
+          // 这条只承接非 converging 错误（如 sendTurnStream 失败）
           <p className="font-mono text-[11px] tracking-wide uppercase text-accent mt-10">
             {error}
           </p>
@@ -482,6 +506,15 @@ export function LetterView({
           prefill={prefill}
         />
       )}
+
+      {/* A-1 · 收信 in-flight overlay · 覆盖手动 handleConverge 和 handleSend 内
+          自动 CONVERGE 两条路径。失败时切到错误态由用户决定再试或回去。 */}
+      <ConvergingOverlay
+        open={isConverging}
+        error={error}
+        onRetry={handleOverlayRetry}
+        onDismiss={handleOverlayDismiss}
+      />
     </>
   );
 }
