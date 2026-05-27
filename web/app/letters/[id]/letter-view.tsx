@@ -66,11 +66,6 @@ export function LetterView({
   // mono 小字解释按钮含义；用 sessionStorage 标记同一封信不再重复（Probe #16 反馈）
   const [showConvergeHint, setShowConvergeHint] = useState(false);
   const convergeHintShownRef = useRef(false);
-  // 空态话题种子预填 · 用 token 触发，同一种子可重复点
-  const [prefill, setPrefill] = useState<{
-    text: string;
-    token: number;
-  } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   // 自动滚到最新
@@ -359,6 +354,8 @@ export function LetterView({
 
       <main className="relative z-10 max-w-[620px] mx-auto px-6 sm:px-8 pt-[90px] sm:pt-[140px] pb-[170px] sm:pb-[260px]">
         {turns.length === 0 && (
+          // A-3 · 保留 hero（01. 招牌字 + 说明）；种子 chips 已下移到 Composer
+          // 上方紧贴 textarea。这样视觉中心 = hero，操作焦点 = composer。
           <div className="mb-14">
             <span
               className="text-accent"
@@ -380,27 +377,6 @@ export function LetterView({
               <br />
               OriSelf 会逐步为你撰写这封属于你一个人的信。
             </p>
-
-            <div className="mt-12">
-              <p className="font-mono text-[10px] tracking-widest uppercase text-ink-muted mb-4">
-                一时想不起从哪开始 · 点一个自动填到下面
-              </p>
-              <ul className="flex flex-col gap-3 items-start">
-                {SEED_OPENERS.map((seed) => (
-                  <li key={seed}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPrefill({ text: seed, token: Date.now() })
-                      }
-                      className="fraunces-body italic text-[17px] text-accent hover:text-accent-soft border-b border-accent/30 hover:border-accent transition-colors pb-[2px] bg-transparent p-0 cursor-pointer text-left"
-                    >
-                      {seed}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
         )}
 
@@ -503,7 +479,8 @@ export function LetterView({
           onSend={handleSend}
           disabled={isStreaming}
           draftKey={letterId}
-          prefill={prefill}
+          // A-3 · 空态时把情境 chips 紧贴 textarea 上方；非空态不渲染
+          chips={turns.length === 0 ? SEED_OPENERS : undefined}
         />
       )}
 
