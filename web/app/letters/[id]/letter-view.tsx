@@ -150,6 +150,19 @@ export function LetterView({
     });
   }, []);
 
+  // 守卫 #1 · 流式失败时（后端发 ORISELF_EMPTY_REPLY 等）抹掉 openOriselfStreamingTurn
+  // 压入的那个空 oriself 气泡——否则用户看到"空气泡 + 报错" = "TA 没说话"（开口者流失杀手）。
+  const dropTrailingEmptyOriselfTurn = useCallback(() => {
+    setTurns((prev) => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      if (last.speaker === "oriself" && !last.text.trim()) {
+        return prev.slice(0, -1);
+      }
+      return prev;
+    });
+  }, []);
+
   // 内部：真正跑收信流程，不查 isConverging lock。retry 走它，避免闭包读旧 state。
   // A-6 · 加 trigger 参数区分 manual / auto / retry 漏斗源
   // ref-based in-flight lock 防 retry 双击 / 并发触发双倍 composeResult（Codex P1）
@@ -274,6 +287,8 @@ export function LetterView({
           await runConverge("auto");
         }
       } catch (err) {
+        // 先抹掉空 oriself 气泡，再显示友好错误（err.message 已是 friendlyError 脱敏后的人话）
+        dropTrailingEmptyOriselfTurn();
         setError(err instanceof Error ? err.message : "发送失败，稍后再试");
       } finally {
         setIsStreaming(false);
@@ -288,6 +303,7 @@ export function LetterView({
       attachQuillLines,
       finalizeOriselfTurn,
       runConverge,
+      dropTrailingEmptyOriselfTurn,
     ],
   );
 
@@ -331,6 +347,15 @@ export function LetterView({
         await runConverge("auto");
       }
     } catch (err) {
+      // 重写失败：服务端 v2.6.4 已保住原轮（成功才丢弃旧轮）。前端去掉这次重写开的
+      // （空 / 半截）气泡，把原回复放回去——让"重写"看起来像没发生，和服务端一致。
+      setTurns((prev) => {
+        const base =
+          prev.length > 0 && prev[prev.length - 1].speaker === "oriself"
+            ? prev.slice(0, -1)
+            : prev;
+        return [...base, lastOri];
+      });
       setError(err instanceof Error ? err.message : "重写失败，稍后再试");
     } finally {
       setIsStreaming(false);

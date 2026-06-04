@@ -809,6 +809,20 @@ _ROLEPLAY_HINT_BLOCK = (
 )
 
 
+# v2.6.4 · 证据来源约定。无条件加载（每封信都有 oriself 行）。
+# ba29e5fc 根因：converge 把模型自己的 oriself_text 和用户原话同权当证据 →
+# 模型把自己之前的提问/镜面/解读读成"关于 TA 的事实" → 标签固化。
+# 这里在 converge 输入端用「来源标注 + 正向约定」把"模型的话 ≠ 用户的事实"讲清楚，
+# 从架构上切断固化回路——不拦任何词、不做内容过滤。
+_EVIDENCE_PROVENANCE_BLOCK = (
+    "# 怎么读这份对话 · 证据来源约定\n"
+    "判型只用「用户原话 / 用户描述过的行动」当证据。标了 oriself 的行是你当时为了往下聊"
+    "而说的提问、镜面与试探——它们是上下文，不是关于 TA 的既定判断；读它们只是为了知道"
+    " TA 在回应什么。每个维度的字母与置信度，都回到 TA 自己的原话上重新判断，"
+    "不要把自己之前说过的话当成关于 TA 的事实。\n\n"
+)
+
+
 @dataclass
 class ReportResult:
     output: Optional[ConvergeOutput]
@@ -844,9 +858,14 @@ class ReportRunner:
         # 历史对话作为 user 消息一次性塞入
         transcript_lines = []
         for t in live:
-            transcript_lines.append(f"[R{t.round_number} · user]\n{t.user_message}")
+            transcript_lines.append(
+                f"[R{t.round_number} · 用户原话（一手证据）]\n{t.user_message}"
+            )
             if t.oriself_text:
-                transcript_lines.append(f"[R{t.round_number} · oriself]\n{t.oriself_text}")
+                transcript_lines.append(
+                    f"[R{t.round_number} · oriself 当时说的话"
+                    f"（你自己的提问/镜面，不是关于 TA 的事实）]\n{t.oriself_text}"
+                )
         transcript = "\n\n".join(transcript_lines)
 
         meta_block = (
@@ -865,7 +884,13 @@ class ReportRunner:
 
         msgs: List[Message] = [
             Message(role="system", content=system, cache_breakpoint=True),
-            Message(role="user", content=meta_block + "\n\n# 完整对话\n\n" + transcript),
+            Message(
+                role="user",
+                content=_EVIDENCE_PROVENANCE_BLOCK
+                + meta_block
+                + "\n\n# 完整对话\n\n"
+                + transcript,
+            ),
         ]
         if retry_hint:
             msgs.append(

@@ -53,6 +53,19 @@ def test_status_lowercase_not_recognized():
     assert p.status_explicit is False
 
 
+def test_status_only_yields_empty_visible():
+    # 守卫 #1 契约：整段只有 STATUS 行 → 剥除后 visible 为空。
+    # routes/letters.py 据此发 ORISELF_EMPTY_REPLY、不入库、round 不进。
+    p = parse_status_sentinel("STATUS: CONTINUE")
+    assert p.status == "CONTINUE"
+    assert p.visible_text.strip() == ""
+
+
+def test_status_only_with_blank_lines_yields_empty_visible():
+    p = parse_status_sentinel("\n\nSTATUS: CONVERGE\n")
+    assert p.visible_text.strip() == ""
+
+
 # ---------------------------------------------------------------------------
 # Guardrails · report_html
 # ---------------------------------------------------------------------------

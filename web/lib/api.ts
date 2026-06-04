@@ -51,6 +51,9 @@ export function friendlyError(raw: unknown): string {
   if (/network|failed to fetch|econnreset|socket/.test(low)) {
     return "网络断了一下，稍后重试。";
   }
+  if (/empty[_\s-]?reply|oriself[_\s-]?empty/.test(low)) {
+    return "Oriself 顿了一下，没把那句话写完 —— 再发一次就好。";
+  }
   return "刚才那一笔没递出去 —— 稍等一下再试试。";
 }
 

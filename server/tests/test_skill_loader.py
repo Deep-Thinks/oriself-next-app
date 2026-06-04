@@ -54,7 +54,13 @@ def test_load_skill_bundle_smoke():
     assert bundle.skill_md, "SKILL.md body not loaded"
     # frontmatter 解析出来
     assert bundle.skill_meta.get("name") == "oriself"
-    assert bundle.skill_meta.get("version") == "2.6.1"
+    # 版本号存在且是 semver（不硬绑具体版本——每次 release 都会变，硬绑会让测试每次发版都挂）
+    version = bundle.skill_meta.get("version")
+    assert (
+        version
+        and version.count(".") == 2
+        and all(part.isdigit() for part in version.split("."))
+    ), f"unexpected skill version: {version!r}"
     # reference 文件全到位
     assert "ethos" in bundle.refs
     assert "converge" in bundle.refs

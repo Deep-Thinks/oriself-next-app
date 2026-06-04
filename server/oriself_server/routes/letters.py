@@ -30,8 +30,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger(__name__)
 
@@ -346,8 +346,49 @@ async def _stream_turn_core(
     sess: TestSession,
     user_message: str,
     rewrite_hint: Optional[str] = None,
+    rewrite_discard_id: Optional[int] = None,
 ):
-    """核心流式 generator · /turn 和 /turn/rewrite 共用。"""
+    """核心流式 generator · /turn 和 /turn/rewrite 共用。
+
+    rewrite 路径：旧轮已由 rewrite_last_turn eager-discard（让本轮在正确轮号、不带旧
+    回复的上下文里重新生成）。这里包一层 finally：本轮若没成功 persist（空回复 / 流错误
+    / 客户端断开），把旧轮 un-discard 恢复——重写失败不再丢整轮（codex P1）。普通 /turn
+    路径 rewrite_discard_id=None，finally 是 no-op，行为不变。
+    """
+    persisted = {"ok": False}
+    try:
+        async for chunk in _stream_turn_core_inner(
+            db, sess, user_message, rewrite_hint, persisted
+        ):
+            yield chunk
+    finally:
+        # 失败/中断（含客户端断流的 GeneratorExit）且没成功 persist → 恢复 eager-discard 的旧轮。
+        # 整段防御式：session 处于异常态时 get/commit 可能抛，不能让它盖过原始错误。
+        if rewrite_discard_id is not None and not persisted["ok"]:
+            try:
+                # 先无条件 rollback：persist 的 commit 失败会让 session 处于 pending-rollback，
+                # 直接 db.get 会抛 PendingRollbackError。eager-discard 已在更早的独立事务里
+                # commit，这个 rollback 只清当前失败事务、不会撤销旧轮的 discarded。
+                db.rollback()
+                old = db.get(Conversation, rewrite_discard_id)
+                if old is not None and old.discarded:
+                    old.discarded = False
+                    db.commit()
+            except Exception:  # noqa: BLE001
+                db.rollback()
+                logger.exception(
+                    "rewrite un-discard failed for conv_id=%s", rewrite_discard_id
+                )
+
+
+async def _stream_turn_core_inner(
+    db: Session,
+    sess: TestSession,
+    user_message: str,
+    rewrite_hint: Optional[str],
+    persisted: dict,
+):
+    """核心流式主体。成功 persist 后置 persisted["ok"]=True，供外层 finally 判断。"""
     state = _load_session_state(db, sess.session_id)
 
     # Round budget 硬拦截：R30 后直接让前端去 /result
@@ -455,6 +496,7 @@ async def _stream_turn_core(
         yield _sse("error", {"message": "INTERNAL_PERSIST_ERROR"})
         return
 
+    persisted["ok"] = True
     yield _sse("done", {
         "round": round_number,
         "status": status,
@@ -513,12 +555,14 @@ async def rewrite_last_turn(
         raise HTTPException(status_code=400, detail="no turn to rewrite")
 
     original_user_message = last.user_message
+    # 先 eager-discard 旧轮：让本轮在正确轮号、不带旧回复的上下文里重新生成（保留原语义）。
+    # last.id 传给 _stream_turn_core：本轮若失败/中断没 persist，由它的 finally 把旧轮
+    # un-discard 恢复——重写失败不再丢整轮（codex P1）。
     last.discarded = True
     try:
         db.commit()
     except IntegrityError as exc:
-        # 防御旧数据库仍然带 uq_session_round_discarded 索引的情况：
-        # 第二次重写同一轮会在这里撞约束。回滚并返 409，前端把它当成"再试一下"。
+        # 防御旧库仍带 uq_session_round_discarded 索引：回滚返 409，前端当"再试一下"。
         db.rollback()
         logger.warning("rewrite commit failed (likely legacy unique index): %s", exc)
         raise HTTPException(
@@ -527,7 +571,13 @@ async def rewrite_last_turn(
         ) from exc
 
     return StreamingResponse(
-        _stream_turn_core(db, sess, original_user_message, rewrite_hint=req.hint),
+        _stream_turn_core(
+            db,
+            sess,
+            original_user_message,
+            rewrite_hint=req.hint,
+            rewrite_discard_id=last.id,
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
