@@ -15,13 +15,14 @@ export const APP_VERSION: string = pkg.version;
  * 拉后端 /health 的实时版本号。仅服务端调用。
  *
  * 后端没起 / 超时 / 形态不对时返回 null —— 调用方据此回退到只显示前端版本。
- * 结果缓存 60s(版本号几乎不变),避免每次首页渲染都打一次后端。
+ * 用 no-store 运行时实时拉：页脚要反映「线上真在跑的后端版本」，不能被烤进
+ * 构建期或吃 Next 持久 fetch 缓存（曾导致 deploy 后页脚显示旧 server 版本）。
  */
 export async function getServerVersion(): Promise<string | null> {
   const base = process.env.API_INTERNAL_URL || "http://localhost:8000";
   try {
     const res = await fetch(`${base}/health`, {
-      next: { revalidate: 60 },
+      cache: "no-store",
       signal: AbortSignal.timeout(2000),
     });
     if (!res.ok) return null;
