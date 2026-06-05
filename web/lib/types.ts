@@ -41,6 +41,7 @@ export interface LetterState {
   last_status?: TurnStatus;
   has_report: boolean;
   issue_slug?: string | null;
+  domain?: string;  // mbti | major
 }
 
 /** /letters/{id}/transcript */
@@ -57,6 +58,8 @@ export interface LetterResult {
   mbti_type: string;
   card_title: string | null;
   issue_slug: string | null;
+  domain?: string;                  // mbti | major
+  result_label?: string | null;     // major 方向标签
 }
 
 export interface IssueMeta {
@@ -66,6 +69,8 @@ export interface IssueMeta {
   is_public: boolean;
   created_at: string;
   letter_id?: string | null;
+  domain?: string;                  // mbti | major
+  result_label?: string | null;     // major 方向标签
 }
 
 export interface FeedbackPayload {

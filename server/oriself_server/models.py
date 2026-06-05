@@ -128,6 +128,9 @@ class TestResult(Base):
         nullable=False,
     )
     mbti_type = Column(String(8), nullable=False)
+    # major 域的方向标签（如"认知科学这一类"）；mbti 域为 NULL。
+    # major 报告无四字母，mbti_type 列写占位 "MAJOR"，真实方向放这里。
+    result_label = Column(String(64), nullable=True)
     # v2.5.2 起 converge 不再产生结构化 insight/card/confidence（LLM 直吐 HTML）。
     # 保留列以便读取旧数据；新写入时全为 NULL。
     insight_json = Column(Text, nullable=True)        # 3 段洞见序列化（废弃）

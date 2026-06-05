@@ -50,6 +50,13 @@ class IssueResponse(BaseModel):
     is_public: bool
     created_at: datetime
     letter_id: Optional[str] = None  # owner 操作（回看对话）入口
+    domain: str = "mbti"             # mbti | major
+    result_label: Optional[str] = None  # major 方向标签；mbti 为 None
+
+
+def _issue_domain(result) -> str:
+    """从落库占位推断域：major 报告的 mbti_type 列写的是占位 "MAJOR"。"""
+    return "major" if (result.mbti_type or "").upper() == "MAJOR" else "mbti"
 
 
 class PublishRequest(BaseModel):
@@ -78,6 +85,8 @@ def get_issue(slug: str, db: Session = Depends(get_db)):
         is_public=result.issue_is_public,
         created_at=result.issue_generated_at or result.created_at,
         letter_id=result.session_id,
+        domain=_issue_domain(result),
+        result_label=result.result_label,
     )
 
 
@@ -141,4 +150,6 @@ def publish_issue(
         is_public=result.issue_is_public,
         created_at=result.issue_generated_at or result.created_at,
         letter_id=result.session_id,
+        domain=_issue_domain(result),
+        result_label=result.result_label,
     )

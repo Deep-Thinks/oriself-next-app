@@ -23,6 +23,8 @@ export function HistorySync(props: Patch) {
     props.issueSlug,
     props.mbtiType,
     props.cardTitle,
+    props.domain,
+    props.resultLabel,
   ]);
   return null;
 }

@@ -41,6 +41,7 @@ from .llm_client import LLMBackend, Message, Pass1Result, ToolCallRequest
 from .quill import derive_lines as _derive_quill_lines
 from .schemas import (
     ConvergeOutput,
+    MajorConvergeOutput,
     MAX_ROUNDS,
     ONBOARDING_ROUND,
     REPORT_MAX_RETRIES,
@@ -139,8 +140,24 @@ def _collect_seen_from_history(
     return seen_phases, seen_techs
 
 
+def _effective_target_for_session(session: SessionState) -> int:
+    """会话级 target_rounds。D11：major 默认更短（~15），仅当用户未显式设 target 时生效。"""
+    prefs = session.user_preferences
+    if session.domain == "major" and (prefs is None or prefs.target_rounds is None):
+        return 15
+    return effective_target_rounds(prefs)
+
+
 def choose_phase_key(session: SessionState, current_round: int) -> str:
-    """选本轮应加载的 phase 文件（v2.5.0 命名，去掉数字前缀）。
+    """选本轮应加载的 phase 文件，按 domain 加前缀（mbti → phase-*，major → major-*）。"""
+    base = _choose_phase_base(session, current_round)
+    if session.domain == "major":
+        return base.replace("phase-", "major-")
+    return base
+
+
+def _choose_phase_base(session: SessionState, current_round: int) -> str:
+    """轮号 → phase base key（v2.5.0 命名，去掉数字前缀）。
 
     - R1 → phase-onboarding
     - R_mid（target/2）且未做过 → phase-midpoint
@@ -151,7 +168,7 @@ def choose_phase_key(session: SessionState, current_round: int) -> str:
     if current_round == ONBOARDING_ROUND:
         return "phase-onboarding"
 
-    target = effective_target_rounds(session.user_preferences)
+    target = _effective_target_for_session(session)
     mid = _midpoint_round(target)
     near = _near_end_round(target)
 
@@ -168,6 +185,18 @@ def choose_phase_key(session: SessionState, current_round: int) -> str:
     if current_round <= 3:
         return "phase-warmup"
     return "phase-exploring"
+
+
+_RE_MAJOR_DIRECTION = re.compile(
+    r'<meta\s+name=["\']oriself-direction["\']\s+content=["\']([^"\']{1,60})["\']',
+    re.IGNORECASE,
+)
+
+
+def _extract_major_direction(html: str) -> Optional[str]:
+    """从 <meta name="oriself-direction" content="..."> 抽 major 方向标签。"""
+    m = _RE_MAJOR_DIRECTION.search(html or "")
+    return m.group(1).strip() if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +338,7 @@ def _runtime_state_block(
     current_round: int,
     phase_key: str,
 ) -> str:
-    target = effective_target_rounds(session.user_preferences)
+    target = _effective_target_for_session(session)
     today = _dt.date.today()
     session_id_short = (session.session_id or "")[:8]
     prefs = session.user_preferences
@@ -522,13 +551,13 @@ class TurnRunner:
         - Pass 1 失败（网络 / 4xx）→ 不兜底，直接发 error，让 benchmark 看到真信号
         """
         current_round = session.round_count + 1
-        target_rounds = effective_target_rounds(session.user_preferences)
+        target_rounds = _effective_target_for_session(session)
 
         # ---- Pass 1 · 工具规划契约 ----
         runtime_block = _runtime_state_block_pass1(
             session, current_round, target_rounds, bundle=self.bundle
         )
-        skill_index = self.bundle.build_skill_index_block()
+        skill_index = self.bundle.build_skill_index_block(session.domain)
         pass1_system = self.bundle.compose_pass1_system(
             runtime_state_block=runtime_block,
             skill_index_block=skill_index,
@@ -554,7 +583,7 @@ class TurnRunner:
                 )
             )
 
-        catalogue = self.bundle.list_all_names()
+        catalogue = self.bundle.list_all_names(session.domain)
         tool_schema = read_skill_tool_schema(catalogue)
 
         logger.info(
@@ -852,7 +881,7 @@ class ReportRunner:
 
         today = _dt.date.today()
         session_id_short = (session.session_id or "")[:8]
-        target = effective_target_rounds(session.user_preferences)
+        target = _effective_target_for_session(session)
         live = session.live_turns()
 
         # 历史对话作为 user 消息一次性塞入
@@ -943,6 +972,31 @@ class ReportRunner:
                     "converge attempt %d html-parse fail: %s", attempt + 1, last_reasons
                 )
                 continue
+
+            # major 域：跳过四字母 / confidence；用 <meta name="oriself-direction"> 作方向标签
+            if session.domain == "major":
+                card_title = extract_card_title_from_html(html)
+                direction = _extract_major_direction(html) or card_title or "未命名方向"
+                try:
+                    output = MajorConvergeOutput(
+                        direction_label=direction,
+                        card_title=card_title,
+                        report_html=html,
+                    )
+                except Exception as exc:
+                    last_reasons = [f"MajorConvergeOutput validate: {exc}"]
+                    logger.info(
+                        "converge attempt %d major schema fail: %s",
+                        attempt + 1,
+                        last_reasons,
+                    )
+                    continue
+                return ReportResult(
+                    output=output,
+                    retries=attempt,
+                    error_reasons=[],
+                    confidence_per_dim={},
+                )
 
             mbti_type, mbti_result = resolve_mbti_or_fail(html)
             if not mbti_result.passed or mbti_type is None:

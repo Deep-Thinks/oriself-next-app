@@ -119,6 +119,12 @@ class SkillBundle:
     def converge_md(self) -> str:
         return self.refs["converge"].body if "converge" in self.refs else ""
 
+    def converge_md_for(self, domain: str) -> str:
+        """按 domain 选 converge body：major → converge-major，否则 converge。"""
+        ref_name = "converge-major" if domain == "major" else "converge"
+        ref = self.refs.get(ref_name) or self.refs.get("converge")
+        return ref.body if ref else ""
+
     @property
     def domain_md(self) -> Dict[str, str]:
         """domain_name → body。key 优先 meta.domain，其次 path.stem。"""
@@ -217,7 +223,8 @@ class SkillBundle:
                 )
 
         # 6. Exemplary session · 仅 R1-R3（后期对话自身已是足够参考）
-        if current_round <= 3 and "exemplary-session" in self.refs:
+        #    exemplary-session 是 mbti 域示例；major 域无示例，不塞（避免跨域污染）。
+        if current_round <= 3 and domain != "major" and "exemplary-session" in self.refs:
             parts.append(
                 f"\n\n---\n\n# 示例对话\n\n{self.refs['exemplary-session'].body}"
             )
@@ -232,12 +239,21 @@ class SkillBundle:
     # 给 LLM 选择（前两者每轮必塞，CONVERGE 只在报告轮生效）。
     _CATALOGUE_DIRS = ("phases", "techniques", "domains", "examples")
 
-    def list_all_names(self) -> List[str]:
-        """枚举 catalogue 名字，稳定排序，供 read_skill schema enum 注入。"""
+    def list_all_names(self, domain: Optional[str] = None) -> List[str]:
+        """枚举 catalogue 名字，稳定排序，供 read_skill schema enum 注入。
+
+        传 domain 时按域过滤：phases / domains / examples 只留 frontmatter `domain`
+        匹配的（无 `domain` 字段默认 "mbti"，向后兼容）；techniques 共享、不过滤。
+        不传 domain → 全集（向后兼容旧调用）。
+        """
         out: List[str] = []
         for r in self.refs.values():
-            if r.parent_dir in self._CATALOGUE_DIRS:
-                out.append(r.name)
+            if r.parent_dir not in self._CATALOGUE_DIRS:
+                continue
+            if domain is not None and r.parent_dir in ("phases", "domains", "examples"):
+                if (r.meta.get("domain") or "mbti") != domain:
+                    continue
+            out.append(r.name)
         return sorted(set(out))
 
     def is_phase_name(self, name: str) -> bool:
@@ -274,11 +290,12 @@ class SkillBundle:
             return f"# 示例对话 · {name}"
         return f"# Skill · {name}"
 
-    def build_skill_index_block(self) -> str:
+    def build_skill_index_block(self, domain: Optional[str] = None) -> str:
         """Pass 1 system 用的 skill 索引：每行 `- name: description`。
 
         分组顺序：phase → technique → domain → example，让 LLM 容易"先选 phase 再补技法"。
         每条只取 frontmatter.description；description 缺失时用 path.stem。
+        传 domain 时只列该域的 phase/domain/example（techniques 共享）。
         """
         groups = {
             "phases": [],
@@ -286,7 +303,7 @@ class SkillBundle:
             "domains": [],
             "examples": [],
         }
-        for name in self.list_all_names():
+        for name in self.list_all_names(domain):
             ref = self.refs[name]
             desc = str(ref.meta.get("description") or "").strip()
             line = f"- {name}: {desc}" if desc else f"- {name}"
@@ -381,8 +398,9 @@ class SkillBundle:
         """
         parts: List[str] = []
 
-        if self.converge_md:
-            parts.append(self.converge_md)
+        converge_body = self.converge_md_for(domain)
+        if converge_body:
+            parts.append(converge_body)
         else:
             parts.append("# CONVERGE 指引缺失，请检查 skill-repo")
 
@@ -436,7 +454,7 @@ def load_skill_bundle(root: Path | str = DEFAULT_SKILL_ROOT) -> SkillBundle:
     refs: Dict[str, RefFile] = {}
 
     # 根级单文件（ETHOS / CONVERGE）
-    for filename in ("ETHOS.md", "CONVERGE.md"):
+    for filename in ("ETHOS.md", "CONVERGE.md", "CONVERGE-major.md"):
         p = root / filename
         if p.exists():
             r = _build_ref(p)
@@ -478,11 +496,12 @@ _PASS1_CONTRACT_BLOCK = """
 铁则：
 1. 必须调用一次 `read_skill(names: string[])`。
 2. names 至少 1 个，最多 8 个，不能为空。
-3. names 必须**包含恰好 1 个 phase**（phase-onboarding / phase-warmup /
-   phase-exploring / phase-midpoint / phase-deep / phase-soft-closing 之一），
-   选哪个由 Runtime State 的轮号决定。**phase 每轮都要选**——哪怕这一轮的
-   phase 与上一轮相同（例如 phase-deep 跨多轮深挖期），仍然要在 names 里写出来。
-4. 当 R1-R3 时，names **必须包含** `exemplary-session`，即使前一轮已经选过。
+3. names 必须**包含恰好 1 个 phase**——从上面 Skill Index 的 `## phases` 组里选一个，
+   选哪个由 Runtime State 的轮号决定。**phase 每轮都要选**——哪怕这一轮的 phase
+   与上一轮相同（例如深挖期跨多轮），仍然要在 names 里写出来。**只能选 Skill Index
+   里真实列出的名字**，不要猜不在表里的 phase。
+4. 当 R1-R3 且 Skill Index 的 `## examples` 组里列出了 example 时，names **必须包含**
+   那个 example，即使前一轮已经选过。（若 examples 组为空，则本条不适用。）
 5. 选 phase 之后，再按"该 phase 真正需要的 technique"补 0..N 个 technique；
    不必凑满 8 个。
    - 默认情况下：本会话已读过的 technique / domain **不必再选**（你能在
@@ -665,9 +684,11 @@ def read_skill_batch(
         )
 
     # ---- exemplary_skipped · 仅 R1-R3，基于 final_names ----
+    # major 域无 exemplary（catalogue 不暴露），该轮选了 major-* phase 时不误报。
     if 1 <= current_round <= 3:
+        is_major_turn = any(isinstance(n, str) and n.startswith("major-") for n in final_names)
         has_exemplary = any(bundle.is_example_name(n) for n in final_names)
-        if not has_exemplary:
+        if not has_exemplary and not is_major_turn:
             violations.append(
                 SkillViolation(
                     kind="exemplary_skipped",
@@ -692,6 +713,19 @@ def read_skill_tool_schema(catalogue: List[str]) -> dict:
     - `minItems=1` `maxItems=8`
     - description 写成"动作 + 必须 + 顺序 + 预算 + 禁止"，不写抽象价值观
     """
+    # exemplary-session 是 mbti 域示例；major-scoped catalogue 不含它，
+    # 此时工具描述不能再要求"R1-R3 必选 exemplary"（否则要模型选 enum 外的名字）。
+    _has_exemplary = "exemplary-session" in catalogue
+    _exemplary_clause = (
+        "on R1-R3 always include 'exemplary-session' even if a prior turn loaded it. "
+        if _has_exemplary
+        else ""
+    )
+    _required_clause = (
+        "phase and R1-R3 'exemplary-session' are protocol-required every turn. "
+        if _has_exemplary
+        else "phase is protocol-required every turn. "
+    )
     return {
         "type": "function",
         "function": {
@@ -702,15 +736,15 @@ def read_skill_tool_schema(catalogue: List[str]) -> dict:
                 "Selection order: pick exactly 1 phase based on Runtime State "
                 "(re-select the same phase if this turn is in the same phase as the previous turn); "
                 "then techniques referenced by that phase that genuinely apply this turn; "
-                "on R1-R3 always include 'exemplary-session' even if a prior turn loaded it. "
-                "Budget: max 8 names per call. "
+                + _exemplary_clause
+                + "Budget: max 8 names per call. "
                 "Already-loaded techniques/domains do not need to be re-selected by default "
                 "(your previous assistant reply is in history); "
                 "if you do need the skill body again this turn, re-select it — "
                 "the server will log a redundant_read (observability only, not an error) "
                 "and still ship the full body in this turn's Pass 2 system prompt. "
-                "phase and R1-R3 'exemplary-session' are protocol-required every turn. "
-                "Do not invent names. Do not skip this call. "
+                + _required_clause
+                + "Do not invent names. Do not skip this call. "
                 "Do not place any reply in message content during this pass."
             ),
             "parameters": {

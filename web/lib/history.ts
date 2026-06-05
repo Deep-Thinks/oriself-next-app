@@ -18,6 +18,9 @@ export interface LocalLetterEntry {
   issueSlug?: string;
   mbtiType?: string;
   cardTitle?: string;
+  /** v2.7 · 域（mbti | major）与 major 方向标签 */
+  domain?: string;
+  resultLabel?: string;
 }
 
 function isBrowser(): boolean {
@@ -93,6 +96,8 @@ export function upsertLetter(
       issueSlug: patch.issueSlug,
       mbtiType: patch.mbtiType,
       cardTitle: patch.cardTitle,
+      domain: patch.domain,
+      resultLabel: patch.resultLabel,
     };
     list.unshift(merged);
   }

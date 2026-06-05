@@ -430,6 +430,66 @@ _MOCK_CONVERGE_HTML = """<!DOCTYPE html>
 """
 
 
+# major 域 · mock 报告（带 oriself-direction meta，无四字母 MBTI）。
+_MOCK_MAJOR_CONVERGE_HTML = """<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>给那个停不下来追问的你</title>
+  <meta name="oriself-direction" content="认知科学这一类">
+  <style>
+    body{margin:0;background:#0e0f1a;color:#e8e9f0;font-family:system-ui,serif;}
+    main{max-width:680px;margin:0 auto;padding:64px 28px;}
+    h1{font-size:2rem;font-weight:600;line-height:1.3;}
+    .sub{color:#a6a8c0;font-size:0.95rem;margin-top:8px;}
+    section{margin-top:40px;}
+    .num{color:#c084fc;font-size:0.8rem;letter-spacing:0.1em;}
+    p{line-height:1.8;margin-top:10px;}
+    blockquote{border-left:3px solid #6366f1;margin:16px 0;padding-left:14px;color:#c7c9dc;}
+    .foot{margin-top:56px;color:#5a5e72;font-size:0.85rem;}
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>给那个停不下来追问的你</h1>
+      <p class="sub">mock · 专业方向演示报告</p>
+    </section>
+    <section>
+      <span class="num">你的内核</span>
+      <p>这是 mock 生成的占位报告。从这次对话里看，真正勾住你的，不是某一个专业这件外壳，
+      而是你反复回到的那个动作：想搞明白一个人、一群人为什么会这么想、这么选。你讲到帮朋友
+      分析他为什么犹豫的时候，整个人是亮的；讲到分数和热门专业的时候，是平的。那根亮的线，
+      就是你的内核。</p>
+    </section>
+    <section>
+      <span class="num">这个内核为什么留得住</span>
+      <p>你爱的是"去定义一个问题、再为自己的判断负责"——这件事机器替不了，因为它要的是一个
+      会为答案失眠的人。只要还有人，就有人需要有人去搞懂别人为什么这么想。这个内核不依赖任何
+      一个具体专业的存亡。</p>
+    </section>
+    <section>
+      <span class="num">几个当下装得下它的方向（都是壳，会变，别认死）</span>
+      <p>认知科学这一类、心理学、社会学，或者计算社会科学这种交叉方向，现在都可能装得下你这个
+      内核。注意：像"计算社会科学"这种说法是探索方向，未必是一个正式的本科专业名，别拿着它去
+      报志愿当唯一答案——你要认的是那个勾住你的东西，不是这个词。</p>
+    </section>
+    <section>
+      <span class="num">现在就能去试的一小步</span>
+      <p>这周找一个你最看不顺眼的观点，真去把持那个观点的人的逻辑一条条写出来，看你是觉得
+      有意思、停不下来，还是觉得烦、想赶紧结束。这件小事能告诉你：这个内核经不经得起重复和无聊。</p>
+    </section>
+    <section>
+      <span class="num">你的原话</span>
+      <blockquote>占位原话：他到底图什么啊，我就是想不通这个。</blockquote>
+    </section>
+    <p class="foot">本报告基于这次对话推断，记得结合真实探索不断校准。你不用今天就定下来。</p>
+  </main>
+</body>
+</html>
+"""
+
+
 class MockBackend(LLMBackend):
     """确定性脚本 mock · v2.6.0。
 
@@ -471,6 +531,10 @@ class MockBackend(LLMBackend):
         *,
         timeout: float = 300.0,
     ) -> str:
+        # 域感知：converge prompt 含 major 标记时返回 major mock 报告
+        joined = "\n".join(m.content for m in messages if getattr(m, "content", None))
+        if "专业方向报告" in joined or "oriself-direction" in joined:
+            return _MOCK_MAJOR_CONVERGE_HTML
         return _MOCK_CONVERGE_HTML
 
     # ---- Pass 1 · 工具规划契约 ----
@@ -504,7 +568,28 @@ class MockBackend(LLMBackend):
         """
         user_rounds = [m for m in messages if m.role == "user"]
         rn = max(1, len(user_rounds))
-        if rn == 1:
+        # 域感知：read_skill schema 的 enum 含 major-* 时走 major phase 映射（无 exemplary）
+        try:
+            _enum = tools[0]["function"]["parameters"]["properties"]["names"]["items"]["enum"]
+        except Exception:
+            _enum = []
+        # major 仅当 enum 是 major-scoped（有 major-*、且无 mbti 的 phase-onboarding）。
+        # 全量 catalogue（两者都含）按 mbti 默认处理，避免测试/误用时误判。
+        _is_major = (
+            any(isinstance(n, str) and n.startswith("major-") for n in _enum)
+            and "phase-onboarding" not in _enum
+        )
+        if _is_major:
+            _major_map = {
+                1: ["major-onboarding"],
+                2: ["major-warmup", "reflective-listening"],
+                3: ["major-warmup"],
+                4: ["major-exploring", "situational-questions"],
+                5: ["major-exploring"],
+                6: ["major-deep", "contradiction-probing"],
+            }
+            names = _major_map.get(rn, ["major-deep"])
+        elif rn == 1:
             names = ["phase-onboarding", "exemplary-session"]
         elif rn == 2:
             names = ["phase-warmup", "reflective-listening", "exemplary-session"]

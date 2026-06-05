@@ -105,6 +105,7 @@ class StateResponse(BaseModel):
     last_status: Optional[str] = None  # 最近一轮的 STATUS sentinel
     has_report: bool = False
     issue_slug: Optional[str] = None
+    domain: str = "mbti"    # mbti | major
 
 
 class TranscriptTurn(BaseModel):
@@ -133,6 +134,8 @@ class ResultResponse(BaseModel):
     mbti_type: str
     card_title: Optional[str] = None
     issue_slug: Optional[str] = None
+    domain: str = "mbti"                       # mbti | major
+    result_label: Optional[str] = None         # major 方向标签；mbti 为 None
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +614,7 @@ def get_state(letter_id: str, db: Session = Depends(get_db)):
         last_status=last_status,
         has_report=result is not None,
         issue_slug=result.issue_slug if result else None,
+        domain=sess.domain,
     )
 
 
@@ -700,6 +704,8 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
                 mbti_type=existing.mbti_type,
                 card_title=existing.issue_title,
                 issue_slug=existing.issue_slug,
+                domain=sess.domain,
+                result_label=existing.result_label,
             )
 
         state = _load_session_state(db, letter_id)
@@ -734,10 +740,21 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
 
         co = result.output
 
+        # 域分支：major 报告无四字母——mbti_type 列写占位 "MAJOR"（满足 NOT NULL
+        # String(8)），真实方向标签进 result_label；slug 用 "major" 前缀。
+        if sess.domain == "major":
+            slug_seed = "major"
+            stored_mbti = "MAJOR"
+            result_label = co.direction_label
+        else:
+            slug_seed = co.mbti_type
+            stored_mbti = co.mbti_type
+            result_label = None
+
         # 生成唯一 slug
         slug = None
         for _ in range(3):
-            candidate = _generate_issue_slug(co.mbti_type)
+            candidate = _generate_issue_slug(slug_seed)
             if not (
                 db.query(TestResult)
                 .filter(TestResult.issue_slug == candidate)
@@ -746,10 +763,10 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
                 slug = candidate
                 break
         if slug is None:
-            slug = _generate_issue_slug(co.mbti_type)
+            slug = _generate_issue_slug(slug_seed)
 
         safe_html = sanitize_report_html(co.report_html)
-        title = co.card_title or co.mbti_type  # 兜底：抽不到 <title> 就用 MBTI 字母
+        title = co.card_title or result_label or stored_mbti  # 抽不到 <title> 的兜底
 
         # v2.6.1 · confidence_json 从 LLM 在 HTML <meta name="oriself-conf"> 写的
         # 8 字母 confidence dict 序列化而来；抽不到时为空 "{}"。
@@ -766,7 +783,8 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
         db.add(
             TestResult(
                 session_id=letter_id,
-                mbti_type=co.mbti_type,
+                mbti_type=stored_mbti,
+                result_label=result_label,
                 insight_json="{}",
                 card_json="{}",
                 confidence_json=confidence_json,
@@ -782,9 +800,11 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
 
         return ResultResponse(
             letter_id=letter_id,
-            mbti_type=co.mbti_type,
+            mbti_type=stored_mbti,
             card_title=title,
             issue_slug=slug,
+            domain=sess.domain,
+            result_label=result_label,
         )
     except HTTPException:
         raise

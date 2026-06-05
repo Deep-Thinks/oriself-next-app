@@ -71,7 +71,11 @@ function LetterRow({
           aria-label={`${targetLabel} · ${entry.letterId.slice(0, 8)}`}
         >
           <div className="flex items-baseline gap-3">
-            {isDone && entry.mbtiType ? (
+            {isDone && entry.domain === "major" ? (
+              <span className="fraunces-body italic text-[13px] text-accent">
+                {entry.resultLabel ?? entry.cardTitle ?? "专业方向"}
+              </span>
+            ) : isDone && entry.mbtiType ? (
               <span className="font-mono text-[12px] tracking-[0.18em] text-accent">
                 {entry.mbtiType}
               </span>

@@ -9,9 +9,13 @@ import { createLetter } from '@/lib/api';
  */
 export const dynamic = 'force-dynamic';
 
-export default async function NewLetterPage() {
+export default async function NewLetterPage(
+  { searchParams }: { searchParams: Promise<{ domain?: string }> }
+) {
+  const { domain } = await searchParams;
+  const safeDomain = domain === 'major' ? 'major' : 'mbti'; // 白名单兜底
   try {
-    const letter = await createLetter();
+    const letter = await createLetter(undefined, safeDomain);
     redirect(`/letters/${letter.letter_id}`);
   } catch (err) {
     // If backend is unreachable, fall back to landing with an error state

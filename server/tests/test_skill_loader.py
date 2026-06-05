@@ -73,8 +73,8 @@ def test_load_skill_bundle_smoke():
 
 def test_phases_loaded():
     bundle = load_skill_bundle(SKILL_ROOT)
-    # v2.5.0 · 6 个 phase，新命名（去数字前缀）
-    assert len(bundle.phases) == 6
+    # v2.5.0 · 6 个 mbti phase；v2.7 起 + 6 个 major phase = 12（bundle.phases 不分域）
+    assert len(bundle.phases) == 12
     for key in (
         "phase-onboarding",
         "phase-warmup",

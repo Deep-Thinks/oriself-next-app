@@ -84,3 +84,19 @@ class ConvergeOutput(BaseModel):
         max_length=80000,
         description="完整自包含 HTML 页面字符串，<!DOCTYPE html> 到 </html>",
     )
+
+
+class MajorConvergeOutput(BaseModel):
+    """专业方向（major）域报告产物：无四字母 MBTI，改用自由文本方向标签。
+
+    - `direction_label`: 从 HTML `<meta name="oriself-direction">` 抽取的大方向名
+    - `card_title`: 从 HTML `<title>` 抽取
+    - `report_html`: 完整自包含 HTML 文档
+    """
+    direction_label: str = Field(min_length=1, max_length=60)
+    card_title: Optional[str] = Field(default=None, max_length=200)
+    report_html: str = Field(
+        min_length=1000,
+        max_length=80000,
+        description="完整自包含 HTML 页面字符串，<!DOCTYPE html> 到 </html>",
+    )

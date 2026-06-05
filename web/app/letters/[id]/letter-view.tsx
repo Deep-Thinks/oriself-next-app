@@ -184,6 +184,8 @@ export function LetterView({
             issueSlug: result.issue_slug,
             mbtiType: result.mbti_type,
             cardTitle: result.card_title ?? undefined,
+            domain: result.domain,
+            resultLabel: result.result_label ?? undefined,
           });
           trackEvent(
             "converge_result_success",

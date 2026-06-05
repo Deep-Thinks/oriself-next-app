@@ -63,6 +63,8 @@ export default async function IssuePage({
           issueSlug={meta.slug}
           mbtiType={meta.mbti_type}
           cardTitle={meta.title}
+          domain={meta.domain}
+          resultLabel={meta.result_label ?? undefined}
         />
       )}
 
@@ -85,14 +87,19 @@ export async function generateMetadata({
   const { slug } = await params;
   try {
     const meta = await getIssue(slug);
+    // major 域不显示伪四字母（mbti_type 为占位 "MAJOR"），用通用文案。
+    const isMajor = meta.domain === "major" || meta.mbti_type === "MAJOR";
+    const desc = isMajor
+      ? "一封关于你想学什么的信。"
+      : `一封关于 ${meta.mbti_type} 的信。`;
     return {
       title: `${meta.title} · OriSelf`,
-      description: `一封关于 ${meta.mbti_type} 的信。`,
+      description: desc,
       // slug 即访问凭证：不让搜索引擎索引，未分享的链接才真正"私有"。
       robots: { index: false, follow: false },
       openGraph: {
         title: meta.title,
-        description: `一封关于 ${meta.mbti_type} 的信。`,
+        description: desc,
       },
     };
   } catch {

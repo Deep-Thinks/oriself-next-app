@@ -61,9 +61,12 @@ def setup_function(_):
 
 
 def test_catalogue_lists_phases_techniques_domains_examples():
-    """list_all_names 返回 11 个 catalogue 名字（6 phase + 3 technique + 1 domain + 1 example）。"""
+    """mbti 域 catalogue = 11 个（6 phase + 3 technique + 1 domain + 1 example）。
+
+    v2.7 起 catalogue 按 domain 过滤；major 域另有一套 phase/domain（见 test_major_domain）。
+    """
     bundle = load_skill_bundle(SKILL_ROOT)
-    names = bundle.list_all_names()
+    names = bundle.list_all_names("mbti")
     assert "phase-onboarding" in names
     assert "phase-deep" in names
     assert "reflective-listening" in names

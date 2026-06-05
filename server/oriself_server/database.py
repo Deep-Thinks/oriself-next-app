@@ -110,6 +110,27 @@ def init_db() -> None:
     except Exception:
         pass
 
+    # major 域 · test_results 加 result_label（方向标签）。同上 in-place 迁移范式。
+    try:
+        url = str(engine.url)
+        with engine.begin() as conn:
+            if url.startswith("sqlite"):
+                cols = conn.exec_driver_sql(
+                    "PRAGMA table_info(test_results)"
+                ).fetchall()
+                existing = {row[1] for row in cols}
+                if "result_label" not in existing:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE test_results ADD COLUMN result_label VARCHAR(64)"
+                    )
+            else:
+                conn.exec_driver_sql(
+                    "ALTER TABLE test_results "
+                    "ADD COLUMN IF NOT EXISTS result_label VARCHAR(64)"
+                )
+    except Exception:
+        pass
+
 
 @contextmanager
 def session_scope() -> Iterator[Session]:
