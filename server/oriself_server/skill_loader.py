@@ -404,6 +404,11 @@ class SkillBundle:
         else:
             parts.append("# CONVERGE 指引缺失，请检查 skill-repo")
 
+        # 通用设计原则（frontend-design 全文）· mbti 与 major 报告写 HTML 前都必读
+        design = self.refs.get("design-principles")
+        if design and design.body:
+            parts.append(f"\n\n---\n\n{design.body}")
+
         if domain in self.domain_md:
             parts.append(
                 f"\n\n---\n\n# Domain · {domain}\n\n{self.domain_md[domain]}"
@@ -454,7 +459,7 @@ def load_skill_bundle(root: Path | str = DEFAULT_SKILL_ROOT) -> SkillBundle:
     refs: Dict[str, RefFile] = {}
 
     # 根级单文件（ETHOS / CONVERGE）
-    for filename in ("ETHOS.md", "CONVERGE.md", "CONVERGE-major.md"):
+    for filename in ("ETHOS.md", "CONVERGE.md", "CONVERGE-major.md", "design-principles.md"):
         p = root / filename
         if p.exists():
             r = _build_ref(p)
