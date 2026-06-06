@@ -18,6 +18,7 @@ from sqlalchemy import (
     Boolean,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -81,6 +82,9 @@ class Conversation(Base):
     raw_stream = Column(Text)
     status_sentinel = Column(String(16), default="CONTINUE")
     discarded = Column(Boolean, default=False, nullable=False)
+    # v3.1 · 本轮 LLM 自评的"画像清晰度" [0,1]（从末尾 `CLARITY:` 哨兵抽出）。
+    # 存原始每轮值；前端顶栏进度条按会话 running-max 单调展示。缺失为 NULL。
+    clarity = Column(Float, nullable=True)
     # v2.5.3 · 本轮展示给用户的 Oriself 笔触（JSON 数组：["Oriself 想多问一些", ...]）。
     # 永久留在回看页上，和 oriself_text 一起构成这一轮的完整呈现。
     quill_json = Column(Text, nullable=True)

@@ -18,6 +18,10 @@ export interface TurnDonePayload {
   round: number;
   status: TurnStatus;
   visible: string;
+  /** v3.1 · 原始 running-max 画像清晰度 [0,1]（分析用）；无信号时 null。 */
+  clarity?: number | null;
+  /** v3.1 · 顶栏进度条渲染值：旅程节奏(round/target) + clarity 调速，单调 [0,1]；无信号时 null。 */
+  progress?: number | null;
 }
 
 /** SSE `event: quill` payload · token 流出前一次，0..2 条铅笔批注。 */
@@ -42,6 +46,10 @@ export interface LetterState {
   has_report: boolean;
   issue_slug?: string | null;
   domain?: string;  // mbti | major
+  /** v3.1 · 原始 running-max 清晰度 [0,1]（分析用）；无信号时 null。 */
+  clarity_max?: number | null;
+  /** v3.1 · 进度条回灌：旅程节奏 + clarity 调速 [0,1]；无信号时 null。 */
+  progress?: number | null;
 }
 
 /** /letters/{id}/transcript */

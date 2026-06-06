@@ -87,6 +87,8 @@ def init_db() -> None:
         ("phase_match_rn", "BOOLEAN"),
         ("skill_loader_mode", "VARCHAR(16)"),
         ("model", "VARCHAR(64)"),
+        # v3.1 · 每轮自评画像清晰度 [0,1]，驱动前端顶栏进度条。
+        ("clarity", "REAL"),
     ]
     try:
         url = str(engine.url)

@@ -519,7 +519,11 @@ class MockBackend(LLMBackend):
         idx = max(idx, 0)
         body = _MOCK_TURN_SCRIPTS[idx]
         status = "STATUS: CONVERGE" if current_round >= 8 else "STATUS: CONTINUE"
-        full = body + "\n\n" + status
+        # v3.1 · 自评画像清晰度随轮数递增（R1≈0.14 … R7+≈0.95），让本地/测试
+        # 走通"吐 CLARITY → 解析 → running-max → done 帧"整条链路。CLARITY 行
+        # 放在 STATUS 行之前（STATUS 仍是绝对最后一行）。
+        clarity_val = min(0.95, round(current_round * 0.14, 2))
+        full = body + "\n\n" + f"CLARITY: {clarity_val}" + "\n" + status
         # 逐字 yield，模拟流
         for ch in full:
             yield ch

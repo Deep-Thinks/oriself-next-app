@@ -14,7 +14,9 @@ FastAPI routes · 对话（信件）管理 · v2.4。
 SSE 事件：
 - `event: quill`  · data `{"lines": ["Oriself ..."]}`  · token 前一次，0..2 条批注
 - `event: token`  · data `{"delta": "..."}`           · 一个或多个字符
-- `event: done`   · data `{"round": N, "status": "...", "visible": "..."}`
+- `event: done`   · data `{"round": N, "status": "...", "visible": "...", "clarity": 0.62|null, "progress": 0.30|null}`
+                    · clarity = 会话 running-max 自评清晰度 [0,1]（分析用）；progress = 顶栏
+                    · 进度条渲染值（旅程节奏 round/target + clarity 调速，单调）；无信号时 null
 - `event: error`  · data `{"message": "..."}`
 """
 from __future__ import annotations
@@ -30,6 +32,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -38,7 +41,11 @@ logger = logging.getLogger(__name__)
 from ..database import get_sessionmaker
 from ..llm_client import make_backend
 from ..models import Conversation, TestResult, TestSession
-from ..schemas import MAX_ROUNDS, MIN_CONVERGE_ROUND, UserPreferences
+from ..schemas import (
+    MAX_ROUNDS,
+    MIN_CONVERGE_ROUND,
+    UserPreferences,
+)
 from ..skill_loader import load_skill_bundle
 from ..skill_runner import (
     Pass1Trace,
@@ -46,6 +53,7 @@ from ..skill_runner import (
     SessionState,
     Turn,
     TurnRunner,
+    _effective_target_for_session,
     _parse_preferences_heuristic,
 )
 
@@ -106,6 +114,8 @@ class StateResponse(BaseModel):
     has_report: bool = False
     issue_slug: Optional[str] = None
     domain: str = "mbti"    # mbti | major
+    clarity_max: Optional[float] = None  # v3.1 · 原始 running-max 清晰度（分析用）
+    progress: Optional[float] = None      # v3.1 · 进度条回灌：旅程节奏 + clarity 调速
 
 
 class TranscriptTurn(BaseModel):
@@ -241,6 +251,50 @@ def create_letter(req: CreateLetterRequest, db: Session = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 
+def _clarity_max(db: Session, session_id: str) -> Optional[float]:
+    """会话曾达到过的 clarity 最高水位（running max / high-water mark）。
+
+    v3.1 · 进度条单调性的单一真相源：服务端按 MAX 聚合，前端只渲染不做 max 逻辑。
+    全为 NULL（无任何自评信号）时返回 None → 前端隐藏进度条。
+
+    codex 复审 P1 · **故意把 discarded 轮也算进来**：用户点「重写」会把旧轮标
+    discarded、再生成新轮，新轮 clarity 可能更低甚至缺失。若只 MAX 非 discarded 轮，
+    重写后水位会回落，刷新页面进度条就倒退。算上 discarded → 真正单调，"曾经看清到
+    哪"不会因为一次重写被抹掉。
+    """
+    value = (
+        db.query(func.max(Conversation.clarity))
+        .filter(Conversation.session_id == session_id)
+        .scalar()
+    )
+    return float(value) if value is not None else None
+
+
+def _clarity_progress(
+    round_count: int, clarity_max: Optional[float], target: int
+) -> Optional[float]:
+    """顶栏进度条的**显示值** [0,1] · 旅程节奏 + clarity 调速（v3.1）。
+
+    设计纠偏：纯 clarity 在 ~7 轮就饱和（模型那时就基本看懂了），而对话节奏是
+    按 ~20 轮设计的（midpoint 在 target/2）。纯 clarity 条会在第 7 轮显得快满，
+    反而怂恿用户在还没到中期时就离开。
+
+    所以进度 = **旅程进度**（round/target：R6≈0.30、R10≈0.50、R20≈1.0）× clarity
+    调速系数（深聊填更快、敷衍更慢，但旅程封顶 → 永远不会在 R7 看着快满）。
+
+    单调性：round_count 非递减、clarity_max 非递减（running-max）、journey 非递减，
+    三者乘积非递减 → 进度条不回退。round_count<1（建了信封没发消息）→ None（隐藏）。
+    """
+    if round_count < 1:
+        return None
+    journey = min(1.0, round_count / max(1, target))
+    c = clarity_max if clarity_max is not None else 0.0
+    # 0.65 基线 + 0.35 由 clarity 决定：clarity=0 时仍按旅程的 65% 走（兜底成轮数条），
+    # clarity=1 时拿满旅程额度。journey 始终是天花板。
+    progress = journey * (0.65 + 0.35 * max(0.0, min(1.0, c)))
+    return round(min(1.0, progress), 4)
+
+
 def _persist_turn(
     db: Session,
     sess: TestSession,
@@ -250,6 +304,7 @@ def _persist_turn(
     status: str,
     quill_lines: Optional[List[str]] = None,
     pass1_trace: Optional[Pass1Trace] = None,
+    clarity: Optional[float] = None,
 ) -> int:
     """把一轮对话写入 DB；顺便更新 session 状态。返回 round_number。
 
@@ -288,6 +343,7 @@ def _persist_turn(
         status_sentinel=status,
         discarded=False,
         quill_json=quill_blob,
+        clarity=clarity,
     )
     if pass1_trace is not None:
         # codex 复审 P2-2：把 LLM 在 Pass 1 偷写到 message.content 的内容
@@ -407,6 +463,7 @@ async def _stream_turn_core_inner(
     raw_accum = ""
     visible = ""
     status = "CONTINUE"
+    clarity: Optional[float] = None
     had_error = False
     quill_lines: List[str] = []
     pass1_trace: Optional[Pass1Trace] = None
@@ -439,6 +496,9 @@ async def _stream_turn_core_inner(
                 status = payload
             elif kind == "visible":
                 visible = payload
+            elif kind == "clarity":
+                # v3.1 · 本轮自评清晰度 [0,1] 或 None（缺失时不更新进度）
+                clarity = payload if isinstance(payload, (int, float)) else None
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -490,6 +550,7 @@ async def _stream_turn_core_inner(
             status,
             quill_lines,
             pass1_trace=pass1_trace,
+            clarity=clarity,
         )
     except HTTPException as he:
         yield _sse("error", {"message": he.detail, "status_code": he.status_code})
@@ -500,10 +561,19 @@ async def _stream_turn_core_inner(
         return
 
     persisted["ok"] = True
+    clarity_max = _clarity_max(db, sess.session_id)
+    # v3.1 修正：进度条 target 必须和对话/phase 逻辑用同一个有效 target，
+    # 否则 major（域默认 ~15 轮）的进度条会按 20 轮铺、系统性低估、永远到不了 80%。
+    # _effective_target_for_session 已含 D11「major 未显式设 target 时默认 15」。
+    target = _effective_target_for_session(state)
     yield _sse("done", {
         "round": round_number,
         "status": status,
         "visible": visible,
+        # v3.1 · clarity = 原始 running-max（留作分析/调试）；
+        # progress = 顶栏进度条真正渲染的值（旅程节奏 + clarity 调速，单调）
+        "clarity": clarity_max,
+        "progress": _clarity_progress(round_number, clarity_max, target),
     })
 
 
@@ -607,6 +677,10 @@ def get_state(letter_id: str, db: Session = Depends(get_db)):
         last_status = live[-1].status
 
     result = db.query(TestResult).filter(TestResult.session_id == letter_id).first()
+    clarity_max = _clarity_max(db, letter_id)
+    # v3.1 修正：与 done 帧一致，用域感知的有效 target（major 默认 ~15），
+    # 否则回看页/刷新时 major 进度条会和对话期不一致。
+    target = _effective_target_for_session(state)
     return StateResponse(
         letter_id=letter_id,
         round_count=state.round_count,
@@ -615,6 +689,8 @@ def get_state(letter_id: str, db: Session = Depends(get_db)):
         has_report=result is not None,
         issue_slug=result.issue_slug if result else None,
         domain=sess.domain,
+        clarity_max=clarity_max,
+        progress=_clarity_progress(state.round_count, clarity_max, target),
     )
 
 

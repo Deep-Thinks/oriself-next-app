@@ -60,10 +60,11 @@ def setup_function(_):
 # ---------------------------------------------------------------------------
 
 
-def test_catalogue_lists_phases_techniques_domains_examples():
-    """mbti 域 catalogue = 11 个（6 phase + 3 technique + 1 domain + 1 example）。
+def test_catalogue_lists_phases_techniques_examples():
+    """mbti 域 catalogue = 10 个（6 phase + 3 technique + 1 example）。
 
-    v2.7 起 catalogue 按 domain 过滤；major 域另有一套 phase/domain（见 test_major_domain）。
+    v2.7 起 catalogue 按 domain 过滤；major 域另有一套 phase（见 test_major_domain）。
+    v3.1 起 domain 不在 catalogue（改为每轮硬注入），故较旧版少 1。
     """
     bundle = load_skill_bundle(SKILL_ROOT)
     names = bundle.list_all_names("mbti")
@@ -72,11 +73,12 @@ def test_catalogue_lists_phases_techniques_domains_examples():
     assert "reflective-listening" in names
     assert "contradiction-probing" in names
     assert "situational-questions" in names
-    assert "mbti" in names
     assert "exemplary-session" in names
-    # 11 = 6 phases + 3 techniques + 1 domain + 1 example
-    assert len(names) == 11
-    # 不应暴露 ETHOS / SKILL / CONVERGE 给 LLM 选（每轮必塞或仅报告轮）
+    # v3.1：domain 透镜每轮硬注入，不是 read_skill 可选项
+    assert "mbti" not in names
+    # 10 = 6 phases + 3 techniques + 1 example
+    assert len(names) == 10
+    # 不应暴露 ETHOS / SKILL / CONVERGE / domains 给 LLM 选（每轮必塞或仅报告轮）
     assert "ethos" not in names
     assert "converge" not in names
 
@@ -114,6 +116,7 @@ def test_pass1_system_contains_skill_index_and_contract():
     skill_index = bundle.build_skill_index_block()
     runtime = "\n\n---\n\n# Runtime State\n- 当前轮：R3 / target 20"
     p1 = bundle.compose_pass1_system(
+        domain="mbti",
         runtime_state_block=runtime,
         skill_index_block=skill_index,
     )
@@ -121,6 +124,8 @@ def test_pass1_system_contains_skill_index_and_contract():
     assert "Oriself" in p1 or "OriSelf" in p1
     # 必含 ETHOS
     assert "元原则（ETHOS）" in p1
+    # v3.1：domain 透镜每轮硬注入到 Pass 1（规划阶段也知道自己在哪个域）
+    assert "Domain · mbti" in p1
     # 必含 Skill Index 段（每条 `- name: description`）
     assert "Skill Index" in p1
     assert "phase-onboarding" in p1
@@ -167,6 +172,43 @@ def test_pass2_system_handles_phase_missing():
     assert "# 工具箱 · reflective-listening" in p2
     # 没强行补 phase 段
     assert "# 本轮阶段指引" not in p2
+
+
+def test_domain_lens_always_injected_regardless_of_selection():
+    """v3.1 回归：前端选的域，其透镜每轮都进 Pass 1 / Pass 2 上下文——
+
+    哪怕模型在 Pass 1 一个 skill 都没选（loaded_names 为空），域透镜仍在场。
+    这是"用户在前端选什么就进什么"的硬保证，防止 D1/D2/... 核心域原则掉出上下文。
+    """
+    bundle = load_skill_bundle(SKILL_ROOT)
+    runtime = "\n\n---\n\n# Runtime State\n- 当前轮：R7 / target 20"
+
+    # major 域：Pass 2 即使 loaded_names 为空，也必含 major 透镜、且不含 mbti 透镜
+    p2_major = bundle.compose_pass2_system(
+        domain="major",
+        runtime_state_block=runtime,
+        loaded_names=[],
+    )
+    assert "Domain · major" in p2_major
+    assert "Domain · mbti" not in p2_major
+
+    # major 域：Pass 1 同样硬注入 major 透镜
+    p1_major = bundle.compose_pass1_system(
+        domain="major",
+        runtime_state_block=runtime,
+        skill_index_block=bundle.build_skill_index_block("major"),
+    )
+    assert "Domain · major" in p1_major
+    assert "Domain · mbti" not in p1_major
+
+    # mbti 域：对称地只进 mbti 透镜
+    p2_mbti = bundle.compose_pass2_system(
+        domain="mbti",
+        runtime_state_block=runtime,
+        loaded_names=["phase-deep"],
+    )
+    assert "Domain · mbti" in p2_mbti
+    assert "Domain · major" not in p2_mbti
 
 
 # ---------------------------------------------------------------------------

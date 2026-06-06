@@ -457,38 +457,91 @@ _STATUS_RE = re.compile(
     re.MULTILINE,
 )
 
+# v3.1 · 每轮"画像清晰度"自评哨兵（独立成行，放在 STATUS 行之前）。
+# 形如 `CLARITY: 0.62`；容错接受裸数字 / 百分数（>1 视为百分比除以 100）。
+# 用途：前端顶栏单调进度条。缺失即容错——不报错、不阻断，进度条原地不动。
+#
+# 行匹配**故意宽松**（`CLARITY:` 后任意内容）：哪怕值是 `abc` / `-0.2` / `1e-1`
+# 这种解析不出来的脏值，整行也必须被剥除——否则机器哨兵会泄漏给用户、并绕过
+# 空回复护栏（codex 复审 P1）。值的合法性交给 `_clamp_clarity` 单独判断。
+_CLARITY_RE = re.compile(
+    r"(?:^|\n)[ \t]*CLARITY[ \t]*:[ \t]*(.*?)[ \t]*$",
+    re.MULTILINE,
+)
+
+
+def _clamp_clarity(raw_value: Optional[str]) -> Optional[float]:
+    """把 CLARITY 行抽到的字符串归一到 [0,1]。
+
+    - "0.62" → 0.62
+    - "62" / "62%"（>1）→ 0.62（按百分比除以 100）
+    - "1e-1" → 0.1（标准浮点解析）
+    - "-0.2" → 0.0（下界 clamp）
+    - "abc" / 空 / None → None（容错：调用方据此不更新进度，但行已被剥除）
+    """
+    if raw_value is None:
+        return None
+    s = raw_value.strip().rstrip("%").strip()
+    try:
+        v = float(s)
+    except (TypeError, ValueError):
+        # 退一步：从串里抠第一个数字（兼容 "约 0.6"、"0.6 (中)" 之类）
+        m = re.search(r"-?\d+(?:\.\d+)?", raw_value)
+        if not m:
+            return None
+        try:
+            v = float(m.group(0))
+        except ValueError:
+            return None
+    if v > 1.0:
+        v = v / 100.0
+    if v < 0.0:
+        return 0.0
+    return min(1.0, v)
+
 
 @dataclass
 class ParsedTurn:
-    visible_text: str  # 给用户看的（STATUS 行已剥除）
+    visible_text: str  # 给用户看的（STATUS / CLARITY 行已剥除）
     status: str        # CONTINUE / CONVERGE / NEED_USER
     status_explicit: bool  # LLM 是否真的声明了，还是我们按默认 CONTINUE 兜底
+    clarity: Optional[float] = None  # v3.1 · 本轮自评画像清晰度 [0,1]；缺失为 None
 
 
 def parse_status_sentinel(raw: str) -> ParsedTurn:
-    """从 LLM 纯文本输出的**末尾**扫一行 STATUS。
+    """从 LLM 纯文本输出的**末尾**扫 STATUS（必）+ CLARITY（可选）两行哨兵。
 
-    - 抽到 → 从 visible_text 里剥除该行
-    - 没抽到 → visible_text = raw.strip()，status = CONTINUE（默认）
+    - STATUS 抽到 → 从 visible_text 里剥除该行；没抽到 → status = CONTINUE（默认）
+    - CLARITY 抽到 → 解析为 [0,1] 并从 visible_text 里一并剥除；没抽到 → clarity=None
 
     为什么只扫末尾：gstack 的 Completion Status 协议规定 STATUS 是收尾信号，
     LLM 偶尔会在中间段放"STATUS: ..."作叙述文字，那不算。我们只认**最后一行**。
+    CLARITY 同理只认末尾那条，且无论 STATUS 是否存在都会被剥除（否则空回复护栏会
+    把仅剩一行 CLARITY 的脏轮误判为非空）。
     """
     raw = raw or ""
-    # 扫最后一次出现
+
+    status = "CONTINUE"
+    status_explicit = False
     matches = list(_STATUS_RE.finditer(raw))
-    if not matches:
-        return ParsedTurn(
-            visible_text=raw.strip(),
-            status="CONTINUE",
-            status_explicit=False,
-        )
-    last = matches[-1]
-    status = last.group(1)
-    # 剥除该行 —— 用 span 把 STATUS 行及其前导换行一并去掉
-    visible = (raw[: last.start()] + raw[last.end():]).rstrip()
+    if matches:
+        last = matches[-1]
+        status = last.group(1)
+        status_explicit = True
+        # 剥除 STATUS 行 —— 用 span 把该行及其前导换行一并去掉
+        raw = raw[: last.start()] + raw[last.end():]
+
+    clarity: Optional[float] = None
+    c_matches = list(_CLARITY_RE.finditer(raw))
+    if c_matches:
+        last_c = c_matches[-1]
+        clarity = _clamp_clarity(last_c.group(1))
+        # 无论解析成不成功都剥除该行——它是机器哨兵，不该给用户看到
+        raw = raw[: last_c.start()] + raw[last_c.end():]
+
     return ParsedTurn(
-        visible_text=visible,
+        visible_text=raw.strip(),
         status=status,
-        status_explicit=True,
+        status_explicit=status_explicit,
+        clarity=clarity,
     )

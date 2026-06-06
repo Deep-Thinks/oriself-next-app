@@ -10,15 +10,18 @@ import type { ReactNode } from "react";
 export function Masthead({
   meta,
   actions,
+  progress,
 }: {
   meta?: ReactNode;
   actions?: ReactNode;
+  /** v3.1 · 顶栏底沿的满宽进度行（如 <ClarityBar />）；存在时顶栏多出一行。 */
+  progress?: ReactNode;
 }) {
   return (
     <header
       // z-30 > main (z-10) > composer (z-20) ——
       // 否则移动端 main 铺满视口时会吞掉顶栏右上角 AUTHOR 按钮的点击
-      className="fixed top-0 left-0 right-0 z-30 px-5 sm:px-10 py-[18px] sm:py-[22px] flex items-baseline justify-between gap-3 pointer-events-none"
+      className="fixed top-0 left-0 right-0 z-30 px-5 sm:px-10 py-[18px] sm:py-[22px] pointer-events-none"
       style={{
         // 实心纸色打底 + 顶部一条更浓的起笔 + 下沿柔渐变 —— 滚动时正文再不会
         // 穿透过来把 ROUND 徽标吃成灰雾。
@@ -28,23 +31,27 @@ export function Masthead({
         WebkitBackdropFilter: "blur(6px)",
       }}
     >
-      <Link
-        href="/"
-        className="fraunces-brand text-[18px] tracking-tighter text-ink pointer-events-auto"
-        style={{ textDecoration: "none" }}
-      >
-        OriSelf
-      </Link>
+      <div className="flex items-baseline justify-between gap-3">
+        <Link
+          href="/"
+          className="fraunces-brand text-[18px] tracking-tighter text-ink pointer-events-auto"
+          style={{ textDecoration: "none" }}
+        >
+          OriSelf
+        </Link>
 
-      {meta && (
-        <div className="font-mono text-[10px] tracking-widest uppercase text-ink-muted pointer-events-auto">
-          {meta}
-        </div>
-      )}
+        {meta && (
+          <div className="font-mono text-[10px] tracking-widest uppercase text-ink-muted pointer-events-auto">
+            {meta}
+          </div>
+        )}
 
-      {actions && (
-        <div className="flex gap-[22px] pointer-events-auto">{actions}</div>
-      )}
+        {actions && (
+          <div className="flex gap-[22px] pointer-events-auto">{actions}</div>
+        )}
+      </div>
+
+      {progress && <div className="mt-[10px]">{progress}</div>}
     </header>
   );
 }

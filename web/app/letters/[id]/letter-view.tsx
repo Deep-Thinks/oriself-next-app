@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Masthead } from "@/components/masthead";
+import { ClarityBar } from "@/components/letter/clarity-bar";
 import { Composer } from "@/components/letter/composer";
 import { ConvergingOverlay } from "@/components/letter/converging-overlay";
 import { Turn } from "@/components/letter/turn";
@@ -58,6 +59,13 @@ export function LetterView({
   const [isConverging, setIsConverging] = useState(false);
   const [lastStatus, setLastStatus] = useState<TurnStatus | null>(
     initialState.last_status ?? null,
+  );
+  // v3.1 · 顶栏进度条值 [0,1] = 服务端算好的旅程节奏(round/target) + clarity 调速。
+  // 服务端已保证单调；这里仍取 Math.max 兜底，任何顺序下都不回退。回看用 initialState 回灌。
+  const [progress, setProgress] = useState<number | null>(
+    Number.isFinite(initialState.progress)
+      ? Math.min(1, Math.max(0, initialState.progress as number))
+      : null,
   );
   const [error, setError] = useState<string | null>(null);
   const [authorOpen, setAuthorOpen] = useState(false);
@@ -268,6 +276,11 @@ export function LetterView({
         });
         finalizeOriselfTurn(done.visible, done.round);
         setLastStatus(done.status);
+        // 顶栏进度条：Number.isFinite 挡掉 NaN/Infinity，clamp [0,1]，Math.max 兜底单调。
+        if (Number.isFinite(done.progress)) {
+          const v = Math.min(1, Math.max(0, done.progress as number));
+          setProgress((p) => Math.max(p ?? 0, v));
+        }
         // 新的 halt 到来 → 让 banner 重新显示（用户之前即使 dismiss 过，这次要再给出口）
         if (done.status === "NEED_USER") setHaltDismissed(false);
         upsertLetter({
@@ -338,6 +351,11 @@ export function LetterView({
       });
       finalizeOriselfTurn(done.visible, done.round);
       setLastStatus(done.status);
+      // 顶栏进度条：同上，有限性校验 + clamp + Math.max 兜底单调。
+      if (Number.isFinite(done.progress)) {
+        const v = Math.min(1, Math.max(0, done.progress as number));
+        setProgress((p) => Math.max(p ?? 0, v));
+      }
       if (done.status === "NEED_USER") setHaltDismissed(false);
       upsertLetter({
         letterId,
@@ -414,6 +432,7 @@ export function LetterView({
   return (
     <>
       <Masthead
+        progress={<ClarityBar value={progress} />}
         meta={
           <>
             <span>letter</span>

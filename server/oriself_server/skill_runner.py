@@ -457,7 +457,8 @@ class TurnRunner:
           - ("token", str) · token chunk，直接透传给用户
           - ("final",  "")  · 流结束前的标记（紧跟 status + visible）
           - ("status", CONTINUE/CONVERGE/NEED_USER)
-          - ("visible", 完整剥除 STATUS 后的可见文本)
+          - ("visible", 完整剥除 STATUS / CLARITY 后的可见文本)
+          - ("clarity", Optional[float]) · 本轮自评画像清晰度 [0,1]；缺失为 None
           - ("error", err_message)
         """
         user_message = sanitize_user_input(user_message_raw, max_length=4000)
@@ -532,6 +533,7 @@ class TurnRunner:
         yield ("final", "")
         yield ("status", parsed.status)
         yield ("visible", parsed.visible_text)
+        yield ("clarity", parsed.clarity)
 
     # ------------------------------------------------------------------
     # On-demand 模式（v2.6 · 真模型按需）
@@ -559,6 +561,7 @@ class TurnRunner:
         )
         skill_index = self.bundle.build_skill_index_block(session.domain)
         pass1_system = self.bundle.compose_pass1_system(
+            domain=session.domain,
             runtime_state_block=runtime_block,
             skill_index_block=skill_index,
         )
@@ -757,6 +760,7 @@ class TurnRunner:
         yield ("final", "")
         yield ("status", parsed.status)
         yield ("visible", parsed.visible_text)
+        yield ("clarity", parsed.clarity)
 
 
 # ---------------------------------------------------------------------------

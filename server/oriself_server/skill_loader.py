@@ -235,22 +235,28 @@ class SkillBundle:
     # v2.6 · catalogue / Pass 1 / Pass 2
     # ------------------------------------------------------------------
     # v2.6 catalogue：可被 read_skill 选中的名字。仅含 phases / techniques /
-    # domains / examples 这四个子目录里的文件；ETHOS / SKILL / CONVERGE 不暴露
-    # 给 LLM 选择（前两者每轮必塞，CONVERGE 只在报告轮生效）。
-    _CATALOGUE_DIRS = ("phases", "techniques", "domains", "examples")
+    # examples 这三个子目录里的文件；ETHOS / SKILL / CONVERGE / domains 不暴露
+    # 给 LLM 选择。
+    # v3.1：domains 从 catalogue 移除——域透镜（domains/{domain}.md）承载 D1/D2/...
+    # 等核心原则，SKILL.md §参考文件 早就把它定为"每轮都读（稳定长前缀）"，不该是
+    # 模型在 Pass 1 凭感觉自选的 on-demand 项（实测它读一次后再不重选，导致域原则
+    # 之后整段掉出上下文，执行不稳）。改为由 session.domain 确定性地**每轮硬注入**两个
+    # Pass（见 compose_pass1_system / compose_pass2_system），和 ETHOS 同级。
+    _CATALOGUE_DIRS = ("phases", "techniques", "examples")
 
     def list_all_names(self, domain: Optional[str] = None) -> List[str]:
         """枚举 catalogue 名字，稳定排序，供 read_skill schema enum 注入。
 
-        传 domain 时按域过滤：phases / domains / examples 只留 frontmatter `domain`
+        传 domain 时按域过滤：phases / examples 只留 frontmatter `domain`
         匹配的（无 `domain` 字段默认 "mbti"，向后兼容）；techniques 共享、不过滤。
+        （domains 自 v3.1 起不在 catalogue，每轮硬注入，不经此处。）
         不传 domain → 全集（向后兼容旧调用）。
         """
         out: List[str] = []
         for r in self.refs.values():
             if r.parent_dir not in self._CATALOGUE_DIRS:
                 continue
-            if domain is not None and r.parent_dir in ("phases", "domains", "examples"):
+            if domain is not None and r.parent_dir in ("phases", "examples"):
                 if (r.meta.get("domain") or "mbti") != domain:
                     continue
             out.append(r.name)
@@ -293,14 +299,14 @@ class SkillBundle:
     def build_skill_index_block(self, domain: Optional[str] = None) -> str:
         """Pass 1 system 用的 skill 索引：每行 `- name: description`。
 
-        分组顺序：phase → technique → domain → example，让 LLM 容易"先选 phase 再补技法"。
+        分组顺序：phase → technique → example，让 LLM 容易"先选 phase 再补技法"。
         每条只取 frontmatter.description；description 缺失时用 path.stem。
-        传 domain 时只列该域的 phase/domain/example（techniques 共享）。
+        传 domain 时只列该域的 phase/example（techniques 共享）。
+        （domains 自 v3.1 起每轮硬注入、不入此索引——它不是 read_skill 可选项。）
         """
         groups = {
             "phases": [],
             "techniques": [],
-            "domains": [],
             "examples": [],
         }
         for name in self.list_all_names(domain):
@@ -313,10 +319,9 @@ class SkillBundle:
         labels = {
             "phases": "## phases · 每轮必选 1 个",
             "techniques": "## techniques · 按本轮真正需要选 0..N",
-            "domains": "## domains · 域透镜（mbti 等）",
             "examples": "## examples · 风格参考（早轮可选）",
         }
-        for key in ("phases", "techniques", "domains", "examples"):
+        for key in ("phases", "techniques", "examples"):
             lines = groups.get(key) or []
             if not lines:
                 continue
@@ -330,18 +335,25 @@ class SkillBundle:
     def compose_pass1_system(
         self,
         *,
+        domain: str = "mbti",
         runtime_state_block: str,
         skill_index_block: str,
     ) -> str:
-        """Pass 1 system prompt = SKILL body + ETHOS + Runtime State + Skill Index + 协议铁则。
+        """Pass 1 system prompt = SKILL body + ETHOS + Domain + Runtime State + Skill Index + 协议铁则。
 
-        注意装配顺序：稳定文本（SKILL/ETHOS）在前，便于 prompt cache 命中；
+        注意装配顺序：稳定文本（SKILL/ETHOS/Domain）在前，便于 prompt cache 命中；
         动态部分（Runtime State）与索引块放后面。
+
+        v3.1 · domain 透镜每轮硬注入（与 ETHOS 同级、同属稳定长前缀），由 session.domain
+        确定——不再让模型在 Pass 1 凭感觉选。这样 Pass 1 规划阶段也"知道"自己在哪个域，
+        且 SKILL+ETHOS+Domain 成为 Pass 1/Pass 2 共享的可缓存前缀。
         """
         parts: List[str] = []
         parts.append(self.skill_md)
         if self.ethos_md:
             parts.append(f"\n\n---\n\n# 元原则（ETHOS）\n\n{self.ethos_md}")
+        if domain in self.domain_md:
+            parts.append(f"\n\n---\n\n# Domain · {domain}\n\n{self.domain_md[domain]}")
         parts.append(runtime_state_block)
         parts.append("\n\n---\n\n" + skill_index_block)
         parts.append(_PASS1_CONTRACT_BLOCK)
@@ -357,19 +369,23 @@ class SkillBundle:
         runtime_state_block: str,
         loaded_names: List[str],
     ) -> str:
-        """Pass 2 system prompt = SKILL body + ETHOS + Runtime State + 已加载 skills。
+        """Pass 2 system prompt = SKILL body + ETHOS + Domain + Runtime State + 已加载 skills。
 
         注意：
         - **不带** Skill Index（已在 Pass 1 用过；ADR-5）
         - **不带** read_skill 工具（避免 LLM 在正文里又想调；由调用方传 tools=[]）
-        - 即使 LLM 在 Pass 1 没选 mbti domain，本方法也不强制补——
-          loaded_names 列表是什么就拼什么。Pass 1 校验已记录 phase_missing
-          等违规信号，Pass 2 不替模型决策（v2.6 ADR-6 · 不兜底但全可观测）。
+        - v3.1 · domain 透镜由 session.domain **每轮硬注入**（和 ETHOS 同级），不再依赖
+          LLM 在 Pass 1 是否选了它——"前端选什么域，创作上下文就有什么域透镜"。承载
+          D1/D2/... 等核心域原则，必须每轮在场，否则执行不稳。
+        - phase / technique 仍按 loaded_names 拼（模型在 Pass 1 真选过的才进）；domain
+          已不在 catalogue（见 _CATALOGUE_DIRS），不会出现在 loaded_names 里 → 不会重复。
         """
         parts: List[str] = []
         parts.append(self.skill_md)
         if self.ethos_md:
             parts.append(f"\n\n---\n\n# 元原则（ETHOS）\n\n{self.ethos_md}")
+        if domain in self.domain_md:
+            parts.append(f"\n\n---\n\n# Domain · {domain}\n\n{self.domain_md[domain]}")
         parts.append(runtime_state_block)
         if loaded_names:
             parts.append("\n\n---\n\n# Loaded Skills（Pass 1 你已选）")
@@ -509,9 +525,11 @@ _PASS1_CONTRACT_BLOCK = """
    那个 example，即使前一轮已经选过。（若 examples 组为空，则本条不适用。）
 5. 选 phase 之后，再按"该 phase 真正需要的 technique"补 0..N 个 technique；
    不必凑满 8 个。
-   - 默认情况下：本会话已读过的 technique / domain **不必再选**（你能在
+   - 当前域透镜（domain）**每轮自动加载**、已在你上方的 system prompt 里，不在可选
+     清单（Skill Index）中，你**不用也不能**选它。
+   - 默认情况下：本会话已读过的 technique **不必再选**（你能在
      history 里看到上一轮自己用它时的回复）。
-   - 但如果本轮真的需要把该 technique / domain 的指引正文重新摆在你面前，
+   - 但如果本轮真的需要把该 technique 的指引正文重新摆在你面前，
      直接重选即可。服务端会记一条 `redundant_read`（仅观测信号，**不是错误**），
      并把该 skill 的全文重新装进本轮 Pass 2 system prompt。
 6. 不要在 message content 里写**任何**对话回复——本轮只做规划，
@@ -743,7 +761,8 @@ def read_skill_tool_schema(catalogue: List[str]) -> dict:
                 "then techniques referenced by that phase that genuinely apply this turn; "
                 + _exemplary_clause
                 + "Budget: max 8 names per call. "
-                "Already-loaded techniques/domains do not need to be re-selected by default "
+                "The current domain lens is auto-loaded every turn and is NOT selectable here. "
+                "Already-loaded techniques do not need to be re-selected by default "
                 "(your previous assistant reply is in history); "
                 "if you do need the skill body again this turn, re-select it — "
                 "the server will log a redundant_read (observability only, not an error) "

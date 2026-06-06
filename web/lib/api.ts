@@ -116,7 +116,7 @@ export interface TurnStreamOptions {
  * 事件：
  *  - event: quill   { lines: string[] }      // token 之前，可选
  *  - event: token   { delta: string }
- *  - event: done    { round, status, visible }
+ *  - event: done    { round, status, visible, clarity }  // clarity: running-max [0,1] | null
  *  - event: error   { message }
  */
 export async function sendTurnStream(

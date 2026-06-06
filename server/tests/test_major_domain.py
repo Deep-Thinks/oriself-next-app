@@ -63,17 +63,20 @@ def test_catalogue_domain_scoped():
     major = b.list_all_names("major")
     mbti = b.list_all_names("mbti")
     assert "major-deep" in major and "phase-deep" not in major
-    assert "major" in major and "mbti" not in major
+    # v3.1：domain 不再是可选 catalogue 项（改为每轮硬注入）
+    assert "major" not in major and "mbti" not in major
     assert "situational-questions" in major  # 共享 technique
     assert "exemplary-session" not in major  # mbti 专属示例不漏给 major
     assert "phase-deep" in mbti and "major-deep" not in mbti
-    assert "mbti" in mbti and "major" not in mbti
+    assert "mbti" not in mbti and "major" not in mbti
     # 无参 = 全集（向后兼容）
     alln = b.list_all_names()
     assert "phase-deep" in alln and "major-deep" in alln
-    # Skill Index 也按域过滤
+    assert "mbti" not in alln and "major" not in alln  # domain 不进 catalogue
+    # Skill Index 也按域过滤；domain 组不再出现
     idx = b.build_skill_index_block("major")
     assert "major-deep" in idx and "phase-deep" not in idx
+    assert "## domains" not in idx
 
 
 def test_choose_phase_key_domain_aware():
