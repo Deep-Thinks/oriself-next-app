@@ -75,6 +75,8 @@ from ..utils.html_sanitize import sanitize_report_html
 
 router = APIRouter(prefix="/letters", tags=["letters"])
 
+MANUAL_CONVERGE_MIN_PROGRESS = 0.78
+
 
 def _generate_issue_slug(mbti_type: str) -> str:
     # slug 即访问凭证（capability-URL），用 64 bit 随机熵避免被遍历。
@@ -792,6 +794,22 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
                     f"对话只有 {state.round_count} 轮，至少 "
                     f"{MIN_CONVERGE_ROUND} 轮才能写报告"
                 ),
+            )
+        live_turns = state.live_turns()
+        last_status = live_turns[-1].status if live_turns else None
+        target = _effective_target_for_session(state)
+        progress = _clarity_progress(
+            state.round_count,
+            _clarity_max(db, letter_id),
+            target,
+        )
+        if (
+            last_status != "CONVERGE"
+            and (progress is None or progress < MANUAL_CONVERGE_MIN_PROGRESS)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="还没聊到可以收信；先保留这封信，之后还能接着聊。",
             )
 
         bundle = load_skill_bundle()

@@ -159,3 +159,27 @@ def test_major_letter_e2e_smoke():
     s = client.get(f"/letters/{lid}/state")
     assert s.status_code == 200, s.text
     assert s.json()["domain"] == "major"
+
+
+def test_major_result_rejects_manual_early_continue():
+    """用户不能在模型还明显 CONTINUE、旅程不到 80% 时强制生成报告。"""
+    from fastapi.testclient import TestClient
+    from oriself_server.main import create_app
+
+    db_mod.reset_for_tests()
+    client = TestClient(create_app())
+    lid = client.post("/letters", json={"provider": "mock", "domain": "major"}).json()[
+        "letter_id"
+    ]
+
+    for i in range(7):
+        resp = client.post(f"/letters/{lid}/turn", json={"user_message": f"第 {i+1} 轮"})
+        assert resp.status_code == 200, resp.text
+
+    state = client.get(f"/letters/{lid}/state").json()
+    assert state["last_status"] == "CONTINUE"
+    assert state["progress"] < 0.78
+
+    result = client.post(f"/letters/{lid}/result")
+    assert result.status_code == 409
+    assert "还没聊到可以收信" in result.text

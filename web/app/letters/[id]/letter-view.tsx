@@ -11,6 +11,7 @@ import { Turn } from "@/components/letter/turn";
 import { AuthorModal } from "@/components/primitives/author-modal";
 import { trackEvent } from "@/lib/analytics";
 import { composeResult, rewriteLastTurn, sendTurnStream } from "@/lib/api";
+import { canShowManualConvergeAction } from "@/lib/converge";
 import { upsertLetter } from "@/lib/history";
 import type { LetterState, TurnRecord, TurnStatus } from "@/lib/types";
 
@@ -22,6 +23,12 @@ const SEED_OPENERS = [
   "最近在忙的事",
   "昨晚睡不着时在想的",
   "这周印象最深的一个画面",
+];
+
+const MAJOR_SEED_OPENERS = [
+  "我现在完全空白",
+  "我有几个方向但不确定",
+  "我已经有专业了想验证",
 ];
 
 interface Props {
@@ -71,8 +78,8 @@ export function LetterView({
   const [authorOpen, setAuthorOpen] = useState(false);
   // halt（NEED_USER）横幅的"暂隐"状态：点「还想接着写」后隐藏，直到下一次 LLM 再喊 halt
   const [haltDismissed, setHaltDismissed] = useState(false);
-  // 「现在收信」按钮首次出现时的解释提示 · 第 6 轮第一次满足条件时淡入一句
-  // mono 小字解释按钮含义；用 sessionStorage 标记同一封信不再重复（Probe #16 反馈）
+  // 「现在收信」按钮首次出现时的解释提示 · 旅程接近尾声或模型已声明 CONVERGE
+  // 时淡入一句。mono 小字解释按钮含义；用 sessionStorage 标记同一封信不再重复。
   const [showConvergeHint, setShowConvergeHint] = useState(false);
   const convergeHintShownRef = useRef(false);
   // A-6 · runConverge 的 in-flight ref lock；防 retry 双击 / auto+manual 并发
@@ -397,12 +404,14 @@ export function LetterView({
 
   const currentRound = Math.max(...turns.map((t) => t.round), 0);
 
-  // 第 6 轮起允许用户主动收信生成报告（后端 MIN_CONVERGE_ROUND = 6，POST
-  // /letters/:id/result 在 round >= 6 时接受）。此前 UI 上没暴露这个能力，
-  // 用户被锁在"AI 决定何时结束"的模式里 → 反馈里 5/6 命中"对话节奏焦虑"。
-  // 显式的"现在收信"按钮把 agency 还给用户。
-  const canRequestResult =
-    currentRound >= 6 && !isCompleted && !isStreaming && !isConverging;
+  const canRequestResult = canShowManualConvergeAction({
+    currentRound,
+    isCompleted,
+    isStreaming,
+    isConverging,
+    lastStatus,
+    progress,
+  });
 
   // A-2 · 「现在收信」按钮首次满足条件时淡入解释 hint
   // 用 sessionStorage 同 letterId 记忆，避免每轮都跳出来；storage 不可用时仍展示一次
@@ -428,6 +437,22 @@ export function LetterView({
     }
     return -1;
   })();
+
+  const isMajor = initialState.domain === "major";
+  const emptyCopy = isMajor ? (
+    <>
+      不用先想清楚答案。
+      <br />
+      从空白、犹豫，或者一个已经冒出来的专业开始都可以。
+    </>
+  ) : (
+    <>
+      随便聊点最近的事就行。
+      <br />
+      OriSelf 会逐步为你撰写这封属于你一个人的信。
+    </>
+  );
+  const emptyChips = isMajor ? MAJOR_SEED_OPENERS : SEED_OPENERS;
 
   return (
     <>
@@ -477,9 +502,7 @@ export function LetterView({
             </span>
 
             <p className="mt-10 fraunces-body-soft text-[19px] leading-[1.7] text-ink-soft max-w-[520px]">
-              随便聊点最近的事就行。
-              <br />
-              OriSelf 会逐步为你撰写这封属于你一个人的信。
+              {emptyCopy}
             </p>
           </div>
         )}
@@ -513,6 +536,16 @@ export function LetterView({
                     >
                       让 Oriself 重写 <span className="not-italic">↻</span>
                     </button>
+                    {!canRequestResult && currentRound >= 1 && (
+                      <button
+                        type="button"
+                        onClick={() => router.push("/")}
+                        className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0"
+                        aria-label="先到这里 · 保留这封信稍后再聊"
+                      >
+                        先到这里 <span className="not-italic">↩</span>
+                      </button>
+                    )}
                     {canRequestResult && (
                       <button
                         type="button"
@@ -584,7 +617,7 @@ export function LetterView({
           disabled={isStreaming}
           draftKey={letterId}
           // A-3 · 空态时把情境 chips 紧贴 textarea 上方；非空态不渲染
-          chips={turns.length === 0 ? SEED_OPENERS : undefined}
+          chips={turns.length === 0 ? emptyChips : undefined}
         />
       )}
 

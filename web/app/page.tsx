@@ -39,7 +39,7 @@ export default async function LandingPage() {
             注：tracking-widest+uppercase 是英文栏目标签风，中文长句不适用，降到 tracking-wide；
             加 max-w + leading-relaxed + px 兜底移动端中文换行。 */}
         <p className="font-mono text-[10px] tracking-wide text-ink-muted mt-6 text-center max-w-[520px] leading-relaxed px-6">
-          聊 10 分钟，留下一封写给自己的信
+          聊 10 分钟，留下一封写给自己的信，在下方选择测试类型↓
         </p>
 
         {/* Entry — 域切换（MBTI / 专业方向）+ 进入入口

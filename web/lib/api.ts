@@ -54,6 +54,9 @@ export function friendlyError(raw: unknown): string {
   if (/empty[_\s-]?reply|oriself[_\s-]?empty/.test(low)) {
     return "Oriself 顿了一下，没把那句话写完 —— 再发一次就好。";
   }
+  if (msg.includes("还没聊到可以收信")) {
+    return "还没聊到可以收信；先保留这封信，之后还能接着聊。";
+  }
   return "刚才那一笔没递出去 —— 稍等一下再试试。";
 }
 
