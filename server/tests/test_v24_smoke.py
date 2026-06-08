@@ -53,6 +53,111 @@ def test_gemini_model_env_overrides_default(monkeypatch):
     assert os.environ.get(preset["model_env"], preset["default_model"]) == "some-other-model"
 
 
+def test_gemini_turn_thinking_low_by_default(monkeypatch):
+    """对话轮(pass2)默认关扩展思考(thinking_level=low)：实测首 token ~8s→~1.6s 且质量不降。"""
+    from oriself_server.llm_client import _gemini_stream_extra
+
+    monkeypatch.delenv("ORISELF_GEMINI_TURN_THINKING", raising=False)
+    assert _gemini_stream_extra() == {
+        "extra_body": {"google": {"thinking_config": {"thinking_level": "low"}}}
+    }
+
+
+def test_gemini_turn_thinking_configurable(monkeypatch):
+    """空串可关闭本优化(回默认思考)；其他值可调级别。"""
+    from oriself_server.llm_client import _gemini_stream_extra
+
+    monkeypatch.setenv("ORISELF_GEMINI_TURN_THINKING", "")
+    assert _gemini_stream_extra() is None
+    monkeypatch.setenv("ORISELF_GEMINI_TURN_THINKING", "high")
+    assert (
+        _gemini_stream_extra()["extra_body"]["google"]["thinking_config"]["thinking_level"]
+        == "high"
+    )
+
+
+def test_stream_extra_only_merged_into_stream_payload():
+    """stream_extra 存进 backend；非 gemini backend 无此项（不会把 google 字段发给别家）。"""
+    from oriself_server.llm_client import OpenAICompatibleBackend
+
+    b = OpenAICompatibleBackend(
+        api_key="k", base_url="http://x/v1", model="m",
+        stream_extra={"extra_body": {"google": {"thinking_config": {"thinking_level": "low"}}}},
+    )
+    assert b.stream_extra["extra_body"]["google"]["thinking_config"]["thinking_level"] == "low"
+    b2 = OpenAICompatibleBackend(api_key="k", base_url="http://x/v1", model="m")
+    assert b2.stream_extra == {}
+
+
+@pytest.mark.asyncio
+async def test_thinking_extra_only_in_stream_payload(monkeypatch):
+    """行为级证明：thinking 字段只进对话轮(stream_text) payload，报告轮(complete_text)不带。
+
+    用 fake httpx 拦截真实请求体，拦住 codex 评审指出的'只断言属性、没证明合并位置'缺口。
+    """
+    from oriself_server import llm_client
+    from oriself_server.llm_client import Message, OpenAICompatibleBackend
+
+    captured: dict = {}
+
+    class _FakeStream:
+        status_code = 200
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def aiter_lines(self):
+            yield 'data: {"choices":[{"delta":{"content":"hi"}}]}'
+            yield "data: [DONE]"
+
+        async def aread(self):
+            return b""
+
+    class _FakeResp:
+        status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"choices": [{"message": {"content": "report"}}]}
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url, *, headers, json):
+            captured["stream"] = json
+            return _FakeStream()
+
+        async def post(self, url, *, headers, json):
+            captured["post"] = json
+            return _FakeResp()
+
+    monkeypatch.setattr(llm_client.httpx, "AsyncClient", _FakeClient)
+    extra = {"extra_body": {"google": {"thinking_config": {"thinking_level": "low"}}}}
+    b = OpenAICompatibleBackend(
+        api_key="k", base_url="http://x/v1", model="m", stream_extra=extra
+    )
+
+    async for _ in b.stream_text([Message(role="user", content="hi")]):
+        pass
+    await b.complete_text([Message(role="user", content="hi")])
+
+    # 对话轮(stream_text)带 thinking；报告轮(complete_text)不带
+    assert captured["stream"].get("extra_body") == extra["extra_body"]
+    assert "extra_body" not in captured["post"]
+
+
 # ---------------------------------------------------------------------------
 # STATUS sentinel
 # ---------------------------------------------------------------------------
