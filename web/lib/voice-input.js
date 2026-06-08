@@ -28,18 +28,34 @@ export function shouldFocusVoiceDraftFromAsr(suppressFocus) {
 }
 
 export function buildAsrWebSocketUrl(sessionId, href) {
+  const url = resolveAsrWebSocketBase(href);
+  url.searchParams.set("session_id", sessionId);
+  return url.toString();
+}
+
+function resolveAsrWebSocketBase(href) {
+  // 1) 显式配置优先（生产推荐：wss://api.oriself.com/asr/ws）。
   const configured = process.env.NEXT_PUBLIC_ASR_WS_URL;
-  if (configured) {
-    const url = new URL(configured);
-    url.searchParams.set("session_id", sessionId);
-    return url.toString();
+  if (configured) return new URL(configured);
+
+  // 2) 从 NEXT_PUBLIC_API_URL 推导直连后端的 ws 地址。
+  //    WebSocket 的 Upgrade 握手不能稳妥地走 Next.js 的 /api 重写
+  //    （dev server 恰好转发，但 standalone 生产构建不保证），所以默认直连后端。
+  const apiBase = process.env.NEXT_PUBLIC_API_URL;
+  if (apiBase) {
+    const url = new URL(apiBase);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = "/asr/ws";
+    url.search = "";
+    return url;
   }
+
+  // 3) 兜底：同源 /api/asr/ws（仅在外层反代显式转发 WS Upgrade 时可用）。
   const base = new URL(href ?? "http://localhost:3000");
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   base.pathname = "/api/asr/ws";
   base.search = "";
-  base.searchParams.set("session_id", sessionId);
-  return base.toString();
+  return base;
 }
 
 export function reduceAsrTranscript(state, event) {

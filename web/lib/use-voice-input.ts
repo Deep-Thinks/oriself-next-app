@@ -24,6 +24,10 @@ interface Options {
 
 const CHUNK_SAMPLES = 1600; // 100ms @ 16kHz
 const MAX_BUFFERED_SAMPLES = 16000 * 10;
+// 静音判定：录了一会儿后峰值仍低于此（int16，≈ -54dBFS，远低于任何真实麦克风噪声底）
+// 就判为"没采到声音"。真实麦克风即使安静也有噪声底，峰值远不止 60。
+const SILENCE_PEAK_INT16 = 60;
+const SILENCE_CHECK_MS = 3500;
 const QUIET_BLOCK_THRESHOLD = 0.03;
 const QUIET_BLOCK_TARGET = 0.22;
 const MAX_AUTO_GAIN = 12;
@@ -103,6 +107,10 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  // ScriptProcessor 必须连到能抵达 destination 的节点才会触发 onaudioprocess；
+  // 直连 destination 会把麦克风原声回放出来（自己听见自己）。中间挂一个 gain=0
+  // 的静音节点：保证音频被处理、但不外放。
+  const muteRef = useRef<GainNode | null>(null);
   const transcriptRef = useRef<AsrTranscriptState>({
     confirmedText: "",
     partialText: "",
@@ -113,9 +121,21 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
   const activeRef = useRef(false);
   const asrReadyRef = useRef(false);
   const stopWhenReadyRef = useRef(false);
+  // 静音检测：累计本次会话采到的最大振幅（int16）。若一直接近 0，说明麦克风
+  // 静音/选错设备/系统没授权——不是 ASR 的问题，给用户一个明确提示而不是默默无字。
+  const inputMaxRef = useRef(0);
+  const silenceTimerRef = useRef<number | null>(null);
+
+  const clearSilenceTimer = useCallback(() => {
+    if (silenceTimerRef.current !== null) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
 
   const cleanup = useCallback(() => {
     sessionRef.current += 1;
+    clearSilenceTimer();
     const ws = wsRef.current;
     wsRef.current = null;
     if (
@@ -126,8 +146,10 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
     }
     processorRef.current?.disconnect();
     sourceRef.current?.disconnect();
+    muteRef.current?.disconnect();
     processorRef.current = null;
     sourceRef.current = null;
+    muteRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     void audioContextRef.current?.close().catch(() => {});
@@ -135,18 +157,21 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
     asrReadyRef.current = false;
     stopWhenReadyRef.current = false;
     sampleBufferRef.current = [];
-  }, []);
+  }, [clearSilenceTimer]);
 
   const closeInput = useCallback(() => {
+    clearSilenceTimer();
     processorRef.current?.disconnect();
     sourceRef.current?.disconnect();
+    muteRef.current?.disconnect();
     processorRef.current = null;
     sourceRef.current = null;
+    muteRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     void audioContextRef.current?.close().catch(() => {});
     audioContextRef.current = null;
-  }, []);
+  }, [clearSilenceTimer]);
 
   const stop = useCallback(() => {
     const ws = wsRef.current;
@@ -179,6 +204,8 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
     transcriptRef.current = { confirmedText: "", partialText: "" };
     baseTextRef.current = getBaseText();
     stopWhenReadyRef.current = false;
+    inputMaxRef.current = 0;
+    clearSilenceTimer();
     const session = sessionRef.current + 1;
     sessionRef.current = session;
 
@@ -196,6 +223,11 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
         }
         if (sessionRef.current !== session) return;
         if (data.type === "asr.partial" || data.type === "asr.final") {
+          // 真的出字了，撤掉可能已显示的"没采到声音"提示
+          if (data.text) {
+            clearSilenceTimer();
+            setError(null);
+          }
           transcriptRef.current = reduceAsrTranscript(transcriptRef.current, {
             type: data.type,
             text: data.text ?? "",
@@ -278,13 +310,30 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
       }
       const audioContext = new AudioContextCtor();
       audioContextRef.current = audioContext;
+      // iOS Safari / 部分移动浏览器即使在用户手势里创建，AudioContext 仍可能
+      // 处于 suspended，导致 onaudioprocess 永不触发、采集不到任何音频。显式
+      // resume；失败不阻断（桌面通常已是 running）。
+      if (audioContext.state === "suspended") {
+        await audioContext.resume().catch(() => {});
+      }
+      if (sessionRef.current !== session || !activeRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       const source = audioContext.createMediaStreamSource(stream);
       sourceRef.current = source;
       const processor = audioContext.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
+      const mute = audioContext.createGain();
+      mute.gain.value = 0;
+      muteRef.current = mute;
       processor.onaudioprocess = (event) => {
         const channel = event.inputBuffer.getChannelData(0);
         const pcm = downsampleTo16k(channel, audioContext.sampleRate);
+        for (let i = 0; i < pcm.length; i++) {
+          const amp = pcm[i] < 0 ? -pcm[i] : pcm[i];
+          if (amp > inputMaxRef.current) inputMaxRef.current = amp;
+        }
         const pending = sampleBufferRef.current;
         for (let i = 0; i < pcm.length; i++) pending.push(pcm[i]);
         if (pending.length > MAX_BUFFERED_SAMPLES) {
@@ -295,8 +344,23 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
         }
       };
       source.connect(processor);
-      processor.connect(audioContext.destination);
+      processor.connect(mute);
+      mute.connect(audioContext.destination);
       setStatus("listening");
+
+      // 录了一会儿后若峰值仍接近 0 → 麦克风没采到声音（静音/选错设备/系统没授权），
+      // 不是 ASR 问题。给一句明确提示，避免"录了没反应"的困惑。不打断录音，
+      // 用户改好设备后可继续说话。
+      clearSilenceTimer();
+      silenceTimerRef.current = window.setTimeout(() => {
+        if (
+          sessionRef.current === session &&
+          activeRef.current &&
+          inputMaxRef.current < SILENCE_PEAK_INT16
+        ) {
+          setError("好像没采到声音 · 检查麦克风是否静音、或在系统/浏览器里选对了输入设备");
+        }
+      }, SILENCE_CHECK_MS);
 
       await ready;
       if (sessionRef.current !== session) return;
@@ -310,7 +374,7 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
       wsRef.current?.close();
       wsRef.current = null;
     }
-  }, [cleanup, getBaseText, letterId, onDraft]);
+  }, [cleanup, clearSilenceTimer, getBaseText, letterId, onDraft]);
 
   useEffect(() => cleanup, [cleanup]);
 

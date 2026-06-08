@@ -364,7 +364,7 @@ export function Composer({
                     ? "停止语音输入"
                     : "语音输入。电脑端点击开始或停止，手机端按住说话"
                 }
-                className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0 disabled:opacity-40 disabled:hover:text-ink-muted"
+                className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0 min-h-[40px] inline-flex items-center disabled:opacity-40 disabled:hover:text-ink-muted"
               >
                 <span
                   aria-hidden="true"
@@ -391,7 +391,7 @@ export function Composer({
               disabled={
                 disabled || (!text.trim() && !(taRef.current?.value || "").trim())
               }
-              className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-40 disabled:hover:text-accent bg-transparent border-0 cursor-pointer normal-case tracking-normal"
+              className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-40 disabled:hover:text-accent bg-transparent border-0 cursor-pointer normal-case tracking-normal min-h-[40px] inline-flex items-center"
             >
               发 送 <span className="font-mono not-italic">→</span>
             </button>

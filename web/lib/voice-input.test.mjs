@@ -34,10 +34,28 @@ assert.equal(
   "这次没听清，可以再试一次",
 );
 
+// 显式 NEXT_PUBLIC_ASR_WS_URL 优先
+process.env.NEXT_PUBLIC_ASR_WS_URL = "wss://api.oriself.com/asr/ws";
 assert.equal(
   buildAsrWebSocketUrl("letter-1", "https://next.oriself.com/letters/letter-1"),
-  "wss://next.oriself.com/api/asr/ws?session_id=letter-1",
+  "wss://api.oriself.com/asr/ws?session_id=letter-1",
 );
+delete process.env.NEXT_PUBLIC_ASR_WS_URL;
+
+// 无显式配置时从 NEXT_PUBLIC_API_URL 推导直连后端（http→ws / https→wss，path=/asr/ws）
+process.env.NEXT_PUBLIC_API_URL = "https://api.oriself.com";
+assert.equal(
+  buildAsrWebSocketUrl("letter-1", "https://next.oriself.com/letters/letter-1"),
+  "wss://api.oriself.com/asr/ws?session_id=letter-1",
+);
+process.env.NEXT_PUBLIC_API_URL = "http://localhost:18000";
+assert.equal(
+  buildAsrWebSocketUrl("letter-1", "http://localhost:3000/letters/letter-1"),
+  "ws://localhost:18000/asr/ws?session_id=letter-1",
+);
+delete process.env.NEXT_PUBLIC_API_URL;
+
+// 两者都没有时兜底同源 /api/asr/ws
 assert.equal(
   buildAsrWebSocketUrl("letter-1", "http://localhost:3000/letters/letter-1"),
   "ws://localhost:3000/api/asr/ws?session_id=letter-1",
