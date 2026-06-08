@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   buildAsrWebSocketUrl,
+  formatVoiceErrorMessage,
   reduceAsrTranscript,
   renderTranscriptDraft,
+  resolveAsrStopAction,
 } from "./voice-input.js";
 import type { AsrTranscriptState } from "./voice-input";
 
@@ -93,13 +95,6 @@ function flushPendingSamples(
   }
 }
 
-function voiceErrorMessage(message: string): string {
-  if (message === "ASR_DISABLED") return "语音输入暂时没有开启";
-  if (message === "ASR_API_KEY_MISSING") return "语音输入还没配置好";
-  if (message === "websocket failed") return "语音输入断开了";
-  return message || "没有拿到麦克风权限";
-}
-
 export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -117,9 +112,18 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
   const sessionRef = useRef(0);
   const activeRef = useRef(false);
   const asrReadyRef = useRef(false);
+  const stopWhenReadyRef = useRef(false);
 
   const cleanup = useCallback(() => {
     sessionRef.current += 1;
+    const ws = wsRef.current;
+    wsRef.current = null;
+    if (
+      ws &&
+      (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)
+    ) {
+      ws.close(1000, "voice input cleanup");
+    }
     processorRef.current?.disconnect();
     sourceRef.current?.disconnect();
     processorRef.current = null;
@@ -129,21 +133,38 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
     void audioContextRef.current?.close().catch(() => {});
     audioContextRef.current = null;
     asrReadyRef.current = false;
+    stopWhenReadyRef.current = false;
     sampleBufferRef.current = [];
+  }, []);
+
+  const closeInput = useCallback(() => {
+    processorRef.current?.disconnect();
+    sourceRef.current?.disconnect();
+    processorRef.current = null;
+    sourceRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    void audioContextRef.current?.close().catch(() => {});
+    audioContextRef.current = null;
   }, []);
 
   const stop = useCallback(() => {
     const ws = wsRef.current;
+    const session = sessionRef.current;
+    const action = resolveAsrStopAction(session, asrReadyRef.current);
+    if (action === "defer-until-ready") {
+      stopWhenReadyRef.current = true;
+    }
     if (ws && ws.readyState === WebSocket.OPEN) {
-      if (asrReadyRef.current) {
+      if (action === "send-now") {
         flushPendingSamples(sampleBufferRef.current, ws, true);
+        ws.send(JSON.stringify({ type: "stop" }));
       }
-      ws.send(JSON.stringify({ type: "stop" }));
     }
     activeRef.current = false;
-    cleanup();
+    closeInput();
     setStatus("idle");
-  }, [cleanup]);
+  }, [closeInput]);
 
   const start = useCallback(async () => {
     if (activeRef.current) return;
@@ -157,6 +178,7 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
     setStatus("connecting");
     transcriptRef.current = { confirmedText: "", partialText: "" };
     baseTextRef.current = getBaseText();
+    stopWhenReadyRef.current = false;
     const session = sessionRef.current + 1;
     sessionRef.current = session;
 
@@ -172,24 +194,23 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
         } catch {
           return;
         }
+        if (sessionRef.current !== session) return;
         if (data.type === "asr.partial" || data.type === "asr.final") {
           transcriptRef.current = reduceAsrTranscript(transcriptRef.current, {
             type: data.type,
             text: data.text ?? "",
           });
           onDraft(renderTranscriptDraft(baseTextRef.current, transcriptRef.current));
-        } else if (data.type === "asr.error") {
-          setError(data.message ?? "语音输入断开了");
+        } else if (data.type === "asr.error" && sessionRef.current === session) {
+          setError(formatVoiceErrorMessage(data.message ?? "语音输入断开了"));
           setStatus("error");
           activeRef.current = false;
           cleanup();
         }
       };
-      const opened = new Promise<void>((resolve, reject) => {
-        ws.onopen = () => resolve();
-        ws.onerror = () => reject(new Error("websocket failed"));
-      });
+      let rejectReady: (reason?: unknown) => void = () => {};
       const ready = new Promise<void>((resolve, reject) => {
+        rejectReady = reject;
         ws.onmessage = (event) => {
           let data: { type?: string; message?: string };
           try {
@@ -197,10 +218,15 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
           } catch {
             return;
           }
+          if (sessionRef.current !== session) return;
           if (data.type === "asr.ready") {
             ws.onmessage = handleMessage;
             asrReadyRef.current = true;
-            flushPendingSamples(sampleBufferRef.current, ws, false);
+            flushPendingSamples(sampleBufferRef.current, ws, stopWhenReadyRef.current);
+            if (stopWhenReadyRef.current) {
+              ws.send(JSON.stringify({ type: "stop" }));
+              stopWhenReadyRef.current = false;
+            }
             resolve();
             return;
           }
@@ -210,16 +236,20 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
         };
       });
       ws.onclose = () => {
+        if (sessionRef.current !== session) return;
         wsRef.current = null;
         activeRef.current = false;
         cleanup();
+        rejectReady(new Error("websocket failed"));
         setStatus((s) => (s === "error" ? "error" : "idle"));
       };
       ws.onerror = () => {
-        setError("语音输入断开了");
+        if (sessionRef.current !== session) return;
+        setError(formatVoiceErrorMessage("websocket failed"));
         setStatus("error");
         activeRef.current = false;
         cleanup();
+        rejectReady(new Error("websocket failed"));
       };
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -233,6 +263,10 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
       if (sessionRef.current !== session) {
         stream.getTracks().forEach((track) => track.stop());
         activeRef.current = false;
+        return;
+      }
+      if (!activeRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
         return;
       }
       streamRef.current = stream;
@@ -264,19 +298,12 @@ export function useVoiceInput({ letterId, getBaseText, onDraft }: Options) {
       processor.connect(audioContext.destination);
       setStatus("listening");
 
-      await opened;
-      if (sessionRef.current !== session) return;
-      ws.onerror = () => {
-        setError("语音输入断开了");
-        setStatus("error");
-        activeRef.current = false;
-        cleanup();
-      };
       await ready;
       if (sessionRef.current !== session) return;
     } catch (err) {
+      if (sessionRef.current !== session || !activeRef.current) return;
       const message = err instanceof Error ? err.message : "";
-      setError(voiceErrorMessage(message));
+      setError(formatVoiceErrorMessage(message));
       setStatus("error");
       activeRef.current = false;
       cleanup();

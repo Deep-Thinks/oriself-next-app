@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import {
   buildAsrWebSocketUrl,
+  formatVoiceErrorMessage,
   reduceAsrTranscript,
   renderTranscriptDraft,
+  resolveTextareaResizeMode,
+  resolveAsrStopAction,
   resolveVoiceInputMode,
+  shouldFocusVoiceDraftFromAsr,
   shouldToggleVoiceOnClick,
 } from "./voice-input.js";
 
@@ -12,6 +16,23 @@ assert.equal(resolveVoiceInputMode("touch"), "hold");
 assert.equal(resolveVoiceInputMode("pen"), "hold");
 assert.equal(shouldToggleVoiceOnClick(0, 1000), true);
 assert.equal(shouldToggleVoiceOnClick(800, 1000), false);
+assert.equal(resolveAsrStopAction(1, true), "send-now");
+assert.equal(resolveAsrStopAction(1, false), "defer-until-ready");
+assert.equal(resolveAsrStopAction(0, false), "discard");
+assert.equal(resolveAsrStopAction(3, false), "defer-until-ready");
+assert.equal(resolveTextareaResizeMode(true, true), "freeze");
+assert.equal(resolveTextareaResizeMode(true, false), "autosize");
+assert.equal(resolveTextareaResizeMode(false, true), "autosize");
+assert.equal(shouldFocusVoiceDraftFromAsr(false), true);
+assert.equal(shouldFocusVoiceDraftFromAsr(true), false);
+assert.equal(
+  formatVoiceErrorMessage("request timeout after 23 seconds."),
+  "这次没听清，可以再试一次",
+);
+assert.equal(
+  formatVoiceErrorMessage("ASR_SESSION_TIMEOUT"),
+  "这次没听清，可以再试一次",
+);
 
 assert.equal(
   buildAsrWebSocketUrl("letter-1", "https://next.oriself.com/letters/letter-1"),

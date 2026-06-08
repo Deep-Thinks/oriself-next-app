@@ -17,6 +17,26 @@ export function shouldToggleVoiceOnClick(
   now?: number,
 ): boolean;
 
+export type AsrStopAction = "send-now" | "defer-until-ready" | "discard";
+
+export function resolveAsrStopAction(
+  session: number,
+  isReady: boolean,
+): AsrStopAction;
+
+export function formatVoiceErrorMessage(message: string): string;
+
+export type TextareaResizeMode = "autosize" | "freeze";
+
+export function resolveTextareaResizeMode(
+  isHoldRecording: boolean,
+  isListening: boolean,
+): TextareaResizeMode;
+
+export function shouldFocusVoiceDraftFromAsr(
+  suppressFocus: boolean,
+): boolean;
+
 export function buildAsrWebSocketUrl(
   sessionId: string,
   href?: string,

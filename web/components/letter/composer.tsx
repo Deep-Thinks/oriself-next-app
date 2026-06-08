@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoiceInput } from "@/lib/use-voice-input";
 import {
+  resolveTextareaResizeMode,
   resolveVoiceInputMode,
+  shouldFocusVoiceDraftFromAsr,
   shouldToggleVoiceOnClick,
 } from "@/lib/voice-input.js";
 
@@ -32,6 +34,8 @@ interface Props {
 const DRAFT_PREFIX = "oriself:draft:";
 const DRAFT_DEBOUNCE_MS = 400;
 const VOICE_INPUT_ENABLED = process.env.NEXT_PUBLIC_ASR_ENABLED === "1";
+const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
+const COMPOSER_HOLD_TEXTAREA_HEIGHT = 72;
 
 function readDraft(key: string): string {
   if (typeof window === "undefined") return "";
@@ -72,14 +76,24 @@ export function Composer({
 }: Props) {
   const [text, setText] = useState("");
   const [savedHint, setSavedHint] = useState(false);
+  const [isHoldRecording, setIsHoldRecording] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<number | null>(null);
   const lastVoiceHoldEndedAtRef = useRef(0);
+  const isHoldRecordingRef = useRef(false);
+  const suppressVoiceDraftFocusRef = useRef(false);
   const voice = useVoiceInput({
     letterId: draftKey ?? "anonymous",
     getBaseText: () => text || taRef.current?.value || "",
     onDraft: (nextText) => {
       setText(nextText);
+      if (!shouldFocusVoiceDraftFromAsr(suppressVoiceDraftFocusRef.current)) {
+        requestAnimationFrame(() => {
+          const ta = taRef.current;
+          if (ta) ta.scrollTop = ta.scrollHeight;
+        });
+        return;
+      }
       requestAnimationFrame(() => {
         const ta = taRef.current;
         if (!ta) return;
@@ -111,10 +125,21 @@ export function Composer({
 
   // 进入时恢复草稿
   useEffect(() => {
+    isHoldRecordingRef.current = isHoldRecording;
+  }, [isHoldRecording]);
+
+  useEffect(() => {
     if (!draftKey) return;
     const draft = readDraft(draftKey);
     if (draft) setText(draft);
   }, [draftKey]);
+
+  useEffect(() => {
+    if (!voice.isListening) {
+      isHoldRecordingRef.current = false;
+      setIsHoldRecording(false);
+    }
+  }, [voice.isListening]);
 
   // 外部预填 · 点话题种子时由父组件触发
   useEffect(() => {
@@ -139,9 +164,15 @@ export function Composer({
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
+    const resizeMode = resolveTextareaResizeMode(isHoldRecording, voice.isListening);
+    if (resizeMode === "freeze") {
+      ta.style.height = `${COMPOSER_HOLD_TEXTAREA_HEIGHT}px`;
+      return;
+    }
     ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-  }, [text]);
+    ta.style.height =
+      Math.min(ta.scrollHeight, COMPOSER_TEXTAREA_MAX_HEIGHT) + "px";
+  }, [text, isHoldRecording, voice.isListening]);
 
   // 草稿 debounced 持久化
   useEffect(() => {
@@ -179,6 +210,9 @@ export function Composer({
       if (mode !== "hold") return;
       e.preventDefault();
       e.currentTarget.setPointerCapture(e.pointerId);
+      isHoldRecordingRef.current = true;
+      suppressVoiceDraftFocusRef.current = true;
+      setIsHoldRecording(true);
       void voice.start();
     },
     [disabled, draftKey, voice],
@@ -193,6 +227,8 @@ export function Composer({
         e.currentTarget.releasePointerCapture(e.pointerId);
       }
       lastVoiceHoldEndedAtRef.current = Date.now();
+      isHoldRecordingRef.current = false;
+      setIsHoldRecording(false);
       voice.stop();
     },
     [voice],
@@ -203,6 +239,9 @@ export function Composer({
       if (disabled || !draftKey) return;
       e.preventDefault();
       if (!shouldToggleVoiceOnClick(lastVoiceHoldEndedAtRef.current)) return;
+      isHoldRecordingRef.current = false;
+      setIsHoldRecording(false);
+      suppressVoiceDraftFocusRef.current = false;
       if (voice.isListening) voice.stop();
       else void voice.start();
     },
@@ -341,7 +380,7 @@ export function Composer({
                   {voice.isListening ? "再点停止" : "语音"}
                 </span>
                 <span className="sm:hidden">
-                  {voice.isListening ? "松开结束" : "按住说话"}
+                  {isHoldRecording && voice.isListening ? "松开结束" : "按住说话"}
                 </span>
               </button>
             )}
