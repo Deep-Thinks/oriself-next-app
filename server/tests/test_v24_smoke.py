@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 
 import pytest
@@ -11,7 +12,7 @@ from oriself_server.guardrails import (
     verify_report_html_consistency,
     verify_report_html_shape,
 )
-from oriself_server.llm_client import Message, make_backend
+from oriself_server.llm_client import PROVIDER_PRESETS, Message, make_backend
 from oriself_server.schemas import ConvergeOutput, UserPreferences
 from oriself_server.skill_loader import load_skill_bundle
 from oriself_server.skill_runner import (
@@ -21,6 +22,35 @@ from oriself_server.skill_runner import (
     advance_state,
     choose_phase_key,
 )
+
+
+# ---------------------------------------------------------------------------
+# provider preset · 缓存死区防回归（v3.1.2）
+# ---------------------------------------------------------------------------
+
+
+def test_gemini_default_model_avoids_cache_deadzone():
+    """env 未设时的 gemini 默认模型必须避开隐式缓存死区。
+
+    实测 gemini-3.5-flash 在 prompt ≥8k token 时 Gemini 隐式缓存断崖归零
+    （本应用每轮均值 ~10k 正中死区）；gemini-3-flash-preview 无此死区。
+    若未来有人把 default 改回 *-3.5-flash，这条断言会拦住。
+    """
+    preset = PROVIDER_PRESETS["gemini"]
+    assert preset["default_model"] == "gemini-3-flash-preview"
+    assert "3.5-flash" not in preset["default_model"]
+
+
+def test_gemini_model_env_overrides_default(monkeypatch):
+    """`ORISELF_GEMINI_MODEL` 必须优先于 default_model（env 优先语义不被 preset 重构改坏）。"""
+    preset = PROVIDER_PRESETS["gemini"]
+    monkeypatch.delenv("ORISELF_GEMINI_MODEL", raising=False)
+    assert (
+        os.environ.get(preset["model_env"], preset["default_model"])
+        == "gemini-3-flash-preview"
+    )
+    monkeypatch.setenv("ORISELF_GEMINI_MODEL", "some-other-model")
+    assert os.environ.get(preset["model_env"], preset["default_model"]) == "some-other-model"
 
 
 # ---------------------------------------------------------------------------

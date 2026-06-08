@@ -638,7 +638,11 @@ PROVIDER_PRESETS: dict[str, dict] = {
             or ""  # 空串 → make_backend 里会报错
         ),
         "model_env": "ORISELF_GEMINI_MODEL",
-        "default_model": "gemini-3.5-flash",
+        # v3.1.2 · 默认改用 gemini-3-flash-preview：实测 gemini-3.5-flash 在
+        # prompt ≥8k token 时隐式缓存断崖归零（本应用每轮均值 ~10k 正中死区），
+        # 而 3-flash-preview 无此死区、缓存随前缀单调增长。env 未设时回落到这个
+        # 安全默认，避免 .env 漏配/被屏蔽时静默退回死区模型。详见缓存命中根因排查。
+        "default_model": "gemini-3-flash-preview",
         # api_key 同时接受 ORISELF_GEMINI_API_KEY / GEMINI_API_KEY
         "api_key_env": "ORISELF_GEMINI_API_KEY",
         "api_key_env_fallback": "GEMINI_API_KEY",
