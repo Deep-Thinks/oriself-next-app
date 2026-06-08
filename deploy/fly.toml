@@ -22,6 +22,9 @@ kill_timeout = 30
   ORISELF_DB_PATH = "/data/oriself.db"
   ORISELF_SKILL_ROOT = "/app/skill-repo/skills/oriself"
   ORISELF_CORS_ORIGINS = "https://next.oriself.com,https://www.next.oriself.com"
+  ORISELF_ASR_ENABLED = "0"
+  ORISELF_ASR_ARCHIVE_ENABLED = "1"
+  ORISELF_ASR_ARCHIVE_DIR = "/data/asr-archive"
   PORT = "8000"
 
 # SQLite 持久化（MVP）。生产建议迁 Postgres。

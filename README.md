@@ -101,6 +101,22 @@ cd server && pytest
 
 Swagger UI: http://localhost:8000/docs
 
+### 实时语音输入（可选）
+
+V0 提供“像聊天窗口一样”的语音输入：桌面端点击麦克风开始/停止，移动端按住说话，识别文本只写入输入框，用户可以继续修改，同一轮对话也可以多次录入后再手动发送。后端代理 DashScope `fun-asr-realtime`，浏览器不会接触 API Key；同时会按会话目录保存每次语音输入的 PCM 与元信息，便于回测修 bug。
+
+开启：
+
+```bash
+ORISELF_ASR_ENABLED=1
+ORISELF_ASR_API_KEY=sk-xxx          # 或 DASHSCOPE_API_KEY
+ORISELF_ASR_ARCHIVE_DIR=/data/asr-archive
+NEXT_PUBLIC_ASR_ENABLED=1
+NEXT_PUBLIC_ASR_WS_URL=wss://api.oriself.com/asr/ws
+```
+
+生产部署需确认两点：页面响应头允许同源麦克风（`Permissions-Policy: microphone=(self)`），并且外层 nginx/Caddy/Vercel/Fly 链路能把 WebSocket Upgrade 转发到 FastAPI 的 `/asr/ws`。
+
 ### Skill 升级
 
 每周 GitHub Action 自动开 PR 同步 skill 最新版。手动升级：
