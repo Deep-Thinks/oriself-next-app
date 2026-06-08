@@ -106,6 +106,7 @@ async def asr_ws(websocket: WebSocket):
 
     upstream = None
     final_text = ""
+    last_partial_text = ""
     upstream_task_id: Optional[str] = task_id
     error: Optional[str] = None
     audio_bytes = 0
@@ -157,7 +158,7 @@ async def asr_ws(websocket: WebSocket):
         )
 
         async def recv_upstream() -> None:
-            nonlocal final_text, upstream_task_id, error
+            nonlocal final_text, last_partial_text, upstream_task_id, error
             while True:
                 raw = await upstream.recv()
                 try:
@@ -170,6 +171,8 @@ async def asr_ws(websocket: WebSocket):
                 upstream_task_id = normalized.get("task_id") or upstream_task_id
                 if normalized["type"] == "asr.started":
                     continue
+                if normalized["type"] == "asr.partial":
+                    last_partial_text = normalized.get("text") or last_partial_text
                 if normalized["type"] == "asr.final":
                     final_text = normalized.get("text") or final_text
                 if normalized["type"] == "asr.error":
@@ -210,7 +213,8 @@ async def asr_ws(websocket: WebSocket):
         client_task = asyncio.create_task(recv_client())
         try:
             await asyncio.wait_for(client_task, timeout=MAX_SESSION_SECONDS)
-            await asyncio.wait_for(upstream_task, timeout=30)
+            if audio_bytes > 0:
+                await asyncio.wait_for(upstream_task, timeout=30)
         except TimeoutError:
             error = "ASR_SESSION_TIMEOUT"
             await websocket.send_json({"type": "asr.error", "message": error})
@@ -238,7 +242,7 @@ async def asr_ws(websocket: WebSocket):
     finally:
         if archive is not None:
             archive.close(
-                final_text=final_text,
+                final_text=final_text or last_partial_text,
                 task_id=upstream_task_id,
                 request_id=None,
                 error=error,

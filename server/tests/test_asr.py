@@ -220,6 +220,40 @@ class FakeDashScopeWebSocket:
         self.closed = True
 
 
+class FakeDashScopePartialOnlyWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[object] = []
+        self.closed = False
+        self._messages = [
+            json.dumps({"header": {"event": "task-started", "task_id": "task-1"}}),
+            json.dumps(
+                {
+                    "header": {"event": "result-generated", "task_id": "task-1"},
+                    "payload": {
+                        "output": {
+                            "sentence": {
+                                "text": "测试",
+                                "sentence_end": False,
+                            }
+                        }
+                    },
+                }
+            ),
+            json.dumps({"header": {"event": "task-finished", "task_id": "task-1"}}),
+        ]
+
+    async def send(self, data: object) -> None:
+        self.sent.append(data)
+
+    async def recv(self) -> str:
+        if not self._messages:
+            raise RuntimeError("fake upstream exhausted")
+        return self._messages.pop(0)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 def test_asr_ws_proxies_audio_and_archives(monkeypatch, tmp_path: Path):
     from oriself_server.routes import asr as asr_route
 
@@ -274,6 +308,38 @@ def test_asr_ws_proxies_audio_and_archives(monkeypatch, tmp_path: Path):
     assert meta["final_text"] == "正在测试。"
     assert meta["byte_count"] == 4
     assert meta["task_id"] == "task-1"
+
+
+def test_asr_ws_archives_last_partial_when_no_final(monkeypatch, tmp_path: Path):
+    from oriself_server.routes import asr as asr_route
+
+    fake = FakeDashScopePartialOnlyWebSocket()
+
+    async def fake_connect():
+        return fake
+
+    monkeypatch.setenv("ORISELF_ASR_ENABLED", "1")
+    monkeypatch.setenv("ORISELF_ASR_API_KEY", "test-key")
+    monkeypatch.setenv("ORISELF_ASR_ARCHIVE_DIR", str(tmp_path))
+    monkeypatch.setattr(asr_route, "_connect_dashscope", fake_connect)
+
+    client = TestClient(create_app())
+    with client.websocket_connect("/asr/ws?session_id=session-1") as ws:
+        assert ws.receive_json()["type"] == "asr.ready"
+        ws.send_bytes(b"\x01\x02")
+        ws.send_json({"type": "stop"})
+        partial = ws.receive_json()
+        finished = ws.receive_json()
+
+    assert partial["type"] == "asr.partial"
+    assert partial["text"] == "测试"
+    assert finished["type"] == "asr.finished"
+
+    meta_files = list((tmp_path / "session-1").glob("*.json"))
+    assert len(meta_files) == 1
+    meta = json.loads(meta_files[0].read_text())
+    assert meta["final_text"] == "测试"
+    assert meta["error"] is None
 
 
 def test_asr_ws_disabled_by_default(monkeypatch):

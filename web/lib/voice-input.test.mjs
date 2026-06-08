@@ -39,6 +39,32 @@ assert.deepEqual(withFinal, {
   confirmedText: "我正在测试。",
   partialText: "",
 });
+assert.deepEqual(
+  reduceAsrTranscript(withFinal, {
+    type: "asr.partial",
+    text: "我正在",
+  }),
+  {
+    confirmedText: "我正在测试。",
+    partialText: "",
+  },
+);
+assert.deepEqual(
+  reduceAsrTranscript(
+    {
+      confirmedText: "Hello World，这里是阿里巴巴",
+      partialText: "",
+    },
+    {
+      type: "asr.final",
+      text: "Hello World，这里是阿里巴巴语音实验室。",
+    },
+  ),
+  {
+    confirmedText: "Hello World，这里是阿里巴巴语音实验室。",
+    partialText: "",
+  },
+);
 assert.equal(renderTranscriptDraft("", withFinal), "我正在测试。");
 assert.equal(
   renderTranscriptDraft("原来输入", withFinal),

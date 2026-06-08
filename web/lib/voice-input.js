@@ -23,7 +23,16 @@ export function buildAsrWebSocketUrl(sessionId, href) {
 
 export function reduceAsrTranscript(state, event) {
   if (event.type === "asr.partial") {
+    if (state.confirmedText && event.text && state.confirmedText.includes(event.text)) {
+      return { ...state, partialText: "" };
+    }
     return { ...state, partialText: event.text };
+  }
+  if (state.confirmedText && state.confirmedText.includes(event.text)) {
+    return { confirmedText: state.confirmedText, partialText: "" };
+  }
+  if (state.confirmedText && event.text.includes(state.confirmedText)) {
+    return { confirmedText: event.text, partialText: "" };
   }
   const separator =
     state.confirmedText && !/[，。！？；、\s]$/.test(state.confirmedText)
