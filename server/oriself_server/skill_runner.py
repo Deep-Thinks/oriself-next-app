@@ -884,7 +884,6 @@ class ReportRunner:
         system = self.bundle.compose_converge_prompt(domain=session.domain)
 
         today = _dt.date.today()
-        session_id_short = (session.session_id or "")[:8]
         target = _effective_target_for_session(session)
         live = session.live_turns()
 
@@ -903,7 +902,6 @@ class ReportRunner:
 
         meta_block = (
             f"# 元数据（直接写进 HTML，不要留占位符）\n"
-            f"- session_id_short: {session_id_short}\n"
             f"- today_iso: {today.isoformat()}\n"
             f"- today_en: {today.strftime('%b %d, %Y')}\n"
             f"- today_cn: {today.year} 年 {today.month} 月 {today.day} 日\n"
