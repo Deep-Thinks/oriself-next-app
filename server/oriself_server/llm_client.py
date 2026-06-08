@@ -134,11 +134,19 @@ class OpenAICompatibleBackend(LLMBackend):
         base_url: str,
         model: str,
         provider_name: str = "openai_compatible",
+        stream_extra: Optional[dict] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.provider_name = provider_name
+        # v3.1.2 · 只并入**流式对话轮**(stream_text)请求体的额外字段。
+        # 注意：作用于所有 stream_text 调用（on-demand pass2 + legacy 静态对话流），
+        # 不含 pass1(call_tools_only)与报告轮(complete_text)——它们独立构造 payload。
+        # gemini 用它关掉扩展思考(thinking_level=low)：实测默认 thinking 让对话轮
+        # 首 token 延迟 ~8s，关到 low 后 ~1.6s 且回复质量不降。pass1 已快、报告要质量，
+        # 故都保留默认思考。
+        self.stream_extra = stream_extra or {}
 
     # ---- 对话轮 · 流式文本 ----
     async def stream_text(
@@ -152,6 +160,8 @@ class OpenAICompatibleBackend(LLMBackend):
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": True,
         }
+        if self.stream_extra:
+            payload.update(self.stream_extra)
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -708,4 +718,25 @@ def make_backend(provider: str) -> LLMBackend:
         base_url=preset["base_url"],
         model=model,
         provider_name=provider,
+        stream_extra=_gemini_stream_extra() if provider == "gemini" else None,
     )
+
+
+def _gemini_stream_extra() -> Optional[dict]:
+    """v3.1.2 · 对话轮(pass2)关闭 Gemini 3 的扩展思考以砍首 token 延迟。
+
+    实测：gemini-3-flash-preview 默认开扩展思考，对话轮首 token 要 ~8s（且缓存
+    命中也救不了，frt 命中/未命中几乎相同——延迟是模型思考、不是 prefill）；
+    设 thinking_level=low 后首 token 降到 ~1.6s，对话质量不降反更具体。
+    经 new-api 走 `extra_body.google.thinking_config` 透传给 Gemini 原生。
+    设环境变量 `ORISELF_GEMINI_TURN_THINKING=""` 可关闭本优化（回默认思考）；
+    设成 `high` 之类可调级别。只作用于流式对话轮(stream_text)，pass1/报告轮不受影响。
+
+    兼容性：`extra_body.google.*` 仅在确认能透传该字段的网关（如 new-api）下安全；
+    若把 `ORISELF_GEMINI_BASE_URL` 指向不认识该字段、且对未知字段报 4xx 的网关，
+    对话流会失败——届时用上面的 env 关掉本优化即可。
+    """
+    level = os.environ.get("ORISELF_GEMINI_TURN_THINKING", "low")
+    if not level:
+        return None
+    return {"extra_body": {"google": {"thinking_config": {"thinking_level": level}}}}
