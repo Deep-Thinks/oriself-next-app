@@ -23,6 +23,11 @@ services:
       - ORISELF_QWEN_API_KEY=${ORISELF_QWEN_API_KEY:-}
       - ORISELF_KIMI_API_KEY=${ORISELF_KIMI_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ORISELF_ASR_ENABLED=${ORISELF_ASR_ENABLED:-0}
+      - ORISELF_ASR_API_KEY=${ORISELF_ASR_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - ORISELF_ASR_ARCHIVE_ENABLED=${ORISELF_ASR_ARCHIVE_ENABLED:-1}
+      - ORISELF_ASR_ARCHIVE_DIR=/data/asr-archive
     volumes:
       - ./data:/data
       - ./skill-repo:/app/skill-repo:ro  # submodule 挂载，只读
@@ -41,6 +46,8 @@ services:
       - "3002:3000"
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_ASR_ENABLED=${NEXT_PUBLIC_ASR_ENABLED:-0}
+      - NEXT_PUBLIC_ASR_WS_URL=${NEXT_PUBLIC_ASR_WS_URL:-}
       - API_INTERNAL_URL=http://server:8000
       - NODE_ENV=production
     depends_on:

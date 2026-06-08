@@ -1,6 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useVoiceInput } from "@/lib/use-voice-input";
+import {
+  resolveTextareaResizeMode,
+  resolveVoiceInputMode,
+  shouldFocusVoiceDraftFromAsr,
+  shouldToggleVoiceOnClick,
+} from "@/lib/voice-input.js";
 
 interface Props {
   onSend: (text: string) => void;
@@ -26,6 +33,9 @@ interface Props {
 
 const DRAFT_PREFIX = "oriself:draft:";
 const DRAFT_DEBOUNCE_MS = 400;
+const VOICE_INPUT_ENABLED = process.env.NEXT_PUBLIC_ASR_ENABLED === "1";
+const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
+const COMPOSER_HOLD_TEXTAREA_HEIGHT = 72;
 
 function readDraft(key: string): string {
   if (typeof window === "undefined") return "";
@@ -66,8 +76,36 @@ export function Composer({
 }: Props) {
   const [text, setText] = useState("");
   const [savedHint, setSavedHint] = useState(false);
+  const [isHoldRecording, setIsHoldRecording] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const debounceRef = useRef<number | null>(null);
+  const lastVoiceHoldEndedAtRef = useRef(0);
+  const isHoldRecordingRef = useRef(false);
+  const suppressVoiceDraftFocusRef = useRef(false);
+  const voice = useVoiceInput({
+    letterId: draftKey ?? "anonymous",
+    getBaseText: () => text || taRef.current?.value || "",
+    onDraft: (nextText) => {
+      setText(nextText);
+      if (!shouldFocusVoiceDraftFromAsr(suppressVoiceDraftFocusRef.current)) {
+        requestAnimationFrame(() => {
+          const ta = taRef.current;
+          if (ta) ta.scrollTop = ta.scrollHeight;
+        });
+        return;
+      }
+      requestAnimationFrame(() => {
+        const ta = taRef.current;
+        if (!ta) return;
+        ta.focus();
+        try {
+          ta.setSelectionRange(nextText.length, nextText.length);
+        } catch {
+          /* 部分受控 textarea 抛错，忽略 */
+        }
+      });
+    },
+  });
 
   // A-3 · 点 chip 直接填进 textarea + focus；不走 prefill token 那套外部触发机制
   const handleChipClick = useCallback((chipText: string) => {
@@ -87,10 +125,21 @@ export function Composer({
 
   // 进入时恢复草稿
   useEffect(() => {
+    isHoldRecordingRef.current = isHoldRecording;
+  }, [isHoldRecording]);
+
+  useEffect(() => {
     if (!draftKey) return;
     const draft = readDraft(draftKey);
     if (draft) setText(draft);
   }, [draftKey]);
+
+  useEffect(() => {
+    if (!voice.isListening) {
+      isHoldRecordingRef.current = false;
+      setIsHoldRecording(false);
+    }
+  }, [voice.isListening]);
 
   // 外部预填 · 点话题种子时由父组件触发
   useEffect(() => {
@@ -115,9 +164,15 @@ export function Composer({
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
+    const resizeMode = resolveTextareaResizeMode(isHoldRecording, voice.isListening);
+    if (resizeMode === "freeze") {
+      ta.style.height = `${COMPOSER_HOLD_TEXTAREA_HEIGHT}px`;
+      return;
+    }
     ta.style.height = "auto";
-    ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-  }, [text]);
+    ta.style.height =
+      Math.min(ta.scrollHeight, COMPOSER_TEXTAREA_MAX_HEIGHT) + "px";
+  }, [text, isHoldRecording, voice.isListening]);
 
   // 草稿 debounced 持久化
   useEffect(() => {
@@ -147,6 +202,51 @@ export function Composer({
       }
     });
   }, [text, disabled, onSend, draftKey]);
+
+  const handleVoicePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (disabled || !draftKey) return;
+      const mode = resolveVoiceInputMode(e.pointerType);
+      if (mode !== "hold") return;
+      e.preventDefault();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      isHoldRecordingRef.current = true;
+      suppressVoiceDraftFocusRef.current = true;
+      setIsHoldRecording(true);
+      void voice.start();
+    },
+    [disabled, draftKey, voice],
+  );
+
+  const handleVoicePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLButtonElement>) => {
+      const mode = resolveVoiceInputMode(e.pointerType);
+      if (mode !== "hold") return;
+      e.preventDefault();
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+      lastVoiceHoldEndedAtRef.current = Date.now();
+      isHoldRecordingRef.current = false;
+      setIsHoldRecording(false);
+      voice.stop();
+    },
+    [voice],
+  );
+
+  const handleVoiceClick = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      if (disabled || !draftKey) return;
+      e.preventDefault();
+      if (!shouldToggleVoiceOnClick(lastVoiceHoldEndedAtRef.current)) return;
+      isHoldRecordingRef.current = false;
+      setIsHoldRecording(false);
+      suppressVoiceDraftFocusRef.current = false;
+      if (voice.isListening) voice.stop();
+      else void voice.start();
+    },
+    [disabled, draftKey, voice],
+  );
 
   const handleStashDraft = useCallback(() => {
     if (!draftKey) {
@@ -222,7 +322,11 @@ export function Composer({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={
-            disabled ? "正在听……" : "写下你想到的第一件事，不必修饰……"
+            voice.isListening
+              ? "正在听……"
+              : disabled
+                ? "正在写……"
+                : "写下你想到的第一件事，不必修饰……"
           }
           disabled={disabled}
           className="no-scrollbar w-full bg-transparent fraunces-body-soft text-[20px] leading-[1.55] text-ink resize-none outline-none pt-[6px] pb-[10px] border-b border-rule-strong focus:border-accent transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-60 placeholder:italic placeholder:text-ink-muted placeholder:opacity-70"
@@ -245,18 +349,59 @@ export function Composer({
           <span aria-live="polite" className="sm:hidden">
             {savedHint ? "已暂存" : "轻点 → 发送"}
           </span>
-          <button
-            onClick={handleSend}
-            // 同时看 React state + DOM value，两处有一处非空就允许点；避免 state
-            // 与 textarea.value 暂时不同步（例如外部 fill）导致按钮误 disabled。
-            disabled={
-              disabled || (!text.trim() && !(taRef.current?.value || "").trim())
-            }
-            className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-40 disabled:hover:text-accent bg-transparent border-0 cursor-pointer normal-case tracking-normal"
-          >
-            发 送 <span className="font-mono not-italic">→</span>
-          </button>
+          <div className="flex items-center gap-5">
+            {VOICE_INPUT_ENABLED && (
+              <button
+                type="button"
+                onClick={handleVoiceClick}
+                onPointerDown={handleVoicePointerDown}
+                onPointerUp={handleVoicePointerUp}
+                onPointerCancel={handleVoicePointerUp}
+                disabled={disabled || !draftKey}
+                aria-pressed={voice.isListening}
+                aria-label={
+                  voice.isListening
+                    ? "停止语音输入"
+                    : "语音输入。电脑端点击开始或停止，手机端按住说话"
+                }
+                className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors duration-300 bg-transparent border-0 cursor-pointer p-0 min-h-[40px] inline-flex items-center disabled:opacity-40 disabled:hover:text-ink-muted"
+              >
+                <span
+                  aria-hidden="true"
+                  className={
+                    voice.isListening
+                      ? "inline-block mr-1 text-accent"
+                      : "inline-block mr-1"
+                  }
+                >
+                  ●
+                </span>
+                <span className="hidden sm:inline">
+                  {voice.isListening ? "再点停止" : "语音"}
+                </span>
+                <span className="sm:hidden">
+                  {isHoldRecording && voice.isListening ? "松开结束" : "按住说话"}
+                </span>
+              </button>
+            )}
+            <button
+              onClick={handleSend}
+              // 同时看 React state + DOM value，两处有一处非空就允许点；避免 state
+              // 与 textarea.value 暂时不同步（例如外部 fill）导致按钮误 disabled。
+              disabled={
+                disabled || (!text.trim() && !(taRef.current?.value || "").trim())
+              }
+              className="fraunces-body italic text-[15px] text-accent hover:text-accent-soft transition-colors duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] disabled:opacity-40 disabled:hover:text-accent bg-transparent border-0 cursor-pointer normal-case tracking-normal min-h-[40px] inline-flex items-center"
+            >
+              发 送 <span className="font-mono not-italic">→</span>
+            </button>
+          </div>
         </div>
+        {VOICE_INPUT_ENABLED && voice.error && (
+          <p className="mt-3 font-mono text-[10px] tracking-wide text-accent">
+            {voice.error}
+          </p>
+        )}
       </div>
     </footer>
   );
