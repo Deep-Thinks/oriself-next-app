@@ -64,6 +64,7 @@ class IssueResponse(BaseModel):
     created_at: datetime
     domain: str = "mbti"             # mbti | major
     result_label: Optional[str] = None  # major 方向标签；mbti 为 None
+    excerpt: Optional[str] = None    # §4.3 · 报告纯文本摘录；存量旧行为 None
 
 
 def _issue_domain(result) -> str:
@@ -82,6 +83,7 @@ class PublicIssueItem(BaseModel):
     mbti_type: str
     domain: str = "mbti"
     result_label: Optional[str] = None
+    excerpt: Optional[str] = None    # §4.3 · 报告纯文本摘录；存量旧行为 None
     generated_at: datetime
 
 
@@ -111,6 +113,7 @@ def list_public_issues(db: Session = Depends(get_db)):
             mbti_type=r.mbti_type,
             domain=_issue_domain(r),
             result_label=r.result_label,
+            excerpt=r.issue_excerpt,
             generated_at=r.issue_generated_at or r.created_at,
         )
         for r in rows
@@ -135,6 +138,7 @@ def get_issue(slug: str, db: Session = Depends(get_db)):
         created_at=result.issue_generated_at or result.created_at,
         domain=_issue_domain(result),
         result_label=result.result_label,
+        excerpt=result.issue_excerpt,
     )
 
 
@@ -224,4 +228,5 @@ def publish_issue(
         created_at=result.issue_generated_at or result.created_at,
         domain=_issue_domain(result),
         result_label=result.result_label,
+        excerpt=result.issue_excerpt,
     )

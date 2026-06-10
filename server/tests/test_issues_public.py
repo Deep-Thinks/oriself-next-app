@@ -33,7 +33,12 @@ def _seed_convergeable_session(provider: str = "mock", domain: str = "mbti", rou
         return sid
 
 
-def _seed_completed_issue(slug: str, public: bool = False, token: str = "tok123") -> str:
+def _seed_completed_issue(
+    slug: str,
+    public: bool = False,
+    token: str = "tok123",
+    excerpt: str | None = None,
+) -> str:
     with session_scope() as db:
         sess = SessionRow(provider="mock", domain="mbti", skill_version="test")
         db.add(sess)
@@ -47,6 +52,7 @@ def _seed_completed_issue(slug: str, public: bool = False, token: str = "tok123"
                 issue_html="<!doctype html><html><body>x</body></html>",
                 issue_is_public=public,
                 issue_owner_token=token,
+                issue_excerpt=excerpt,
                 insight_json="{}",
                 card_json="{}",
                 confidence_json="{}",
@@ -78,15 +84,34 @@ def test_new_report_is_private_and_returns_owner_token():
 def test_public_endpoint_lists_only_public_renderable():
     db_mod.reset_for_tests()
     _seed_completed_issue(slug="intj-private0001", public=False, token="a")
-    _seed_completed_issue(slug="enfp-public0002", public=True, token="b")
+    _seed_completed_issue(
+        slug="enfp-public0002", public=True, token="b", excerpt="这是一段公开命题的摘录"
+    )
     client = TestClient(create_app())
 
     r = client.get("/issues/public")
     assert r.status_code == 200, r.text
-    slugs = [i["slug"] for i in r.json()]
+    items = r.json()
+    slugs = [i["slug"] for i in items]
     assert "enfp-public0002" in slugs
     assert "intj-private0001" not in slugs
-    assert all("generated_at" in i for i in r.json())
+    assert all("generated_at" in i for i in items)
+    # §4.3 · 公开清单透出 excerpt
+    pub = next(i for i in items if i["slug"] == "enfp-public0002")
+    assert pub["excerpt"] == "这是一段公开命题的摘录"
+
+
+def test_issue_meta_carries_excerpt():
+    """§4.3 · GET /issues/{slug} 透出 issue_excerpt（喂 meta description）。"""
+    db_mod.reset_for_tests()
+    _seed_completed_issue(
+        slug="intj-excerpt001", public=False, token="t", excerpt="掌控权这件事的一段自审"
+    )
+    client = TestClient(create_app())
+
+    meta = client.get("/issues/intj-excerpt001")
+    assert meta.status_code == 200, meta.text
+    assert meta.json()["excerpt"] == "掌控权这件事的一段自审"
 
 
 def test_public_route_not_shadowed_by_slug():

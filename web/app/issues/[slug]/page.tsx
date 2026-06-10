@@ -86,10 +86,13 @@ export async function generateMetadata({
       ? "一封关于你想学什么的信。"
       : `一封关于 ${meta.mbti_type} 的信。`;
     const isPublic = !!meta.is_public;
+    // §4.3 · 公开命题用报告摘录做 description（更有信息量、利于收录）；私有页保持模板
+    // 短句，最小化 noindex 页面的内容暴露面。openGraph/twitter 同用此值。
+    const description = isPublic ? meta.excerpt ?? desc : desc;
     return {
       // 裸标题 → 根 layout 的 title.template 追加 " · OriSelf"（避免双后缀）。
       title: meta.title,
-      description: desc,
+      description,
       alternates: { canonical: `/issues/${slug}` },
       // 私有命题：slug 仍是访问凭证，保持 noindex；用户主动公开后才放开收录。
       robots: isPublic
@@ -99,9 +102,9 @@ export async function generateMetadata({
         type: "article",
         url: `/issues/${slug}`,
         title: meta.title,
-        description: desc,
+        description,
       },
-      twitter: { card: "summary_large_image", title: meta.title, description: desc },
+      twitter: { card: "summary_large_image", title: meta.title, description },
     };
   } catch (err) {
     // 仅真 404 才返回兜底元数据（可被 ISR 缓存）；瞬断/超时抛出 → 不把临时失败冻进 ISR。

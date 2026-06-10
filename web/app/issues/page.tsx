@@ -55,6 +55,12 @@ export default async function GalleryPage() {
                 <p className="fraunces-body italic text-[17px] leading-snug text-ink mt-[6px] truncate group-hover:text-accent transition-colors duration-300">
                   {i.title}
                 </p>
+                {/* §4.3 · 报告摘录一行（存在才显示）；保持目录册语言：一行静音斜体、截断。 */}
+                {i.excerpt && (
+                  <p className="fraunces-body-soft italic text-[13px] text-ink-soft mt-1 truncate">
+                    {i.excerpt}
+                  </p>
+                )}
               </Link>
             </li>
           ))}

@@ -151,6 +151,10 @@ class TestResult(Base):
     # 绝不回显。旧库行为 NULL（无凭证 → 无法公开）。
     issue_owner_token = Column(String(64), nullable=True)
     issue_generated_at = Column(DateTime)
+    # §4.3 · 报告纯文本摘录（一份数据喂三面：issue meta description / 画廊摘要行 /
+    # 未来竖版分享图）。converge 时由 utils.excerpt.extract_excerpt 从 HTML 抽取；
+    # 旧库行为 NULL（存量 backfill 是 runbook D-1 / Batch 5.3 的活，不在本任务内）。
+    issue_excerpt = Column(String(200), nullable=True)
 
     created_at = Column(DateTime, default=_utcnow)
 

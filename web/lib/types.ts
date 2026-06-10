@@ -80,6 +80,7 @@ export interface IssueMeta {
   // letter_id 已移除：它是 owner-only capability，不再出现在公开元数据里（Batch 0 / D-A）。
   domain?: string;                  // mbti | major
   result_label?: string | null;     // major 方向标签
+  excerpt?: string | null;          // §4.3 · 报告纯文本摘录（喂公开页 meta description）
 }
 
 export interface FeedbackPayload {
@@ -102,5 +103,6 @@ export interface PublicIssueSummary {
   mbti_type: string;
   domain?: string;
   result_label?: string | null;
+  excerpt?: string | null;          // §4.3 · 报告纯文本摘录（喂画廊摘要行）
   generated_at: string;
 }

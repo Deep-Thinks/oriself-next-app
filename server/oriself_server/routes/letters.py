@@ -70,6 +70,7 @@ def _resolve_loader_mode() -> str:
     if raw not in ("static", "on-demand"):
         raw = "on-demand"
     return raw
+from ..utils.excerpt import extract_excerpt
 from ..utils.html_sanitize import sanitize_report_html
 
 
@@ -864,6 +865,10 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
         safe_html = sanitize_report_html(co.report_html)
         title = co.card_title or result_label or stored_mbti  # 抽不到 <title> 的兜底
 
+        # §4.3 · 摘录一份数据喂三面（issue meta description / 画廊摘要行 / 未来分享图）。
+        # 抽不到合格段落时为 None；存量旧行的 backfill 是 runbook D-1 / Batch 5.3 的活。
+        excerpt = extract_excerpt(safe_html)
+
         # v2.6.1 · confidence_json 从 LLM 在 HTML <meta name="oriself-conf"> 写的
         # 8 字母 confidence dict 序列化而来；抽不到时为空 "{}"。
         # insight_json / card_json 仍废弃（v2.5.2 起 LLM 直吐 HTML）。
@@ -892,6 +897,7 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
                 issue_html=safe_html,
                 issue_is_public=False,
                 issue_owner_token=owner_token,
+                issue_excerpt=excerpt,
                 issue_generated_at=datetime.now(timezone.utc),
             )
         )

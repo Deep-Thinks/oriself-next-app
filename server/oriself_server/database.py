@@ -154,6 +154,27 @@ def init_db() -> None:
     except Exception:
         pass
 
+    # §4.3 · test_results.issue_excerpt（报告纯文本摘录）。同上 in-place 迁移范式。
+    try:
+        url = str(engine.url)
+        with engine.begin() as conn:
+            if url.startswith("sqlite"):
+                cols = conn.exec_driver_sql(
+                    "PRAGMA table_info(test_results)"
+                ).fetchall()
+                existing = {row[1] for row in cols}
+                if "issue_excerpt" not in existing:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE test_results ADD COLUMN issue_excerpt VARCHAR(200)"
+                    )
+            else:
+                conn.exec_driver_sql(
+                    "ALTER TABLE test_results "
+                    "ADD COLUMN IF NOT EXISTS issue_excerpt VARCHAR(200)"
+                )
+    except Exception:
+        pass
+
 
 @contextmanager
 def session_scope() -> Iterator[Session]:
