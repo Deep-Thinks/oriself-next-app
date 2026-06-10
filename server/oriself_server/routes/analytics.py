@@ -3,7 +3,7 @@ FastAPI routes · 漏斗埋点（最薄版本）。
 
 v2.7 设计原则（plan v0.3 §1.A-6）：
 - 只埋"用户视角事件"，server 处理完成 round 这种已经有 logger.info 不再重复
-- 9 个白名单事件，其他 event 一律 400 拒收（防垃圾埋点扩散）
+- 白名单事件，其他 event 一律 400 拒收（防垃圾埋点扩散）
 - ip_hash sha256(salt + ip) 单向，不存原 IP；salt 走 ORISELF_ANALYTICS_IP_SALT
   环境变量。原始 sha256(ip) 不安全：IPv4 空间小，离线 rainbow table 反查成本低。
 - props_json schema 不固定，allow event 自由附 letter_id / round / trigger 等
@@ -19,6 +19,8 @@ v2.7 设计原则（plan v0.3 §1.A-6）：
     issue_opened                props: {slug, letter_id?}
     arrival_dismissed           props: {trigger: "auto"/"keyboard"/"看信"/"复制地址", slug}
     link_copied                 props: {slug, letter_id?}
+    new_letter_from_issue       props: {slug, domain}  · 接收者转化点击（报告页「也给自己写一封」）
+    issue_published             props: {slug, is_public}  · 公开收录开关翻转（公开率）
 """
 from __future__ import annotations
 
@@ -55,7 +57,9 @@ ALLOWED_EVENTS = {
     "converge_result_failed",
     "issue_opened",
     "arrival_dismissed",
-    "link_copied",          # §P4 · 复制分享地址 · props {slug, letter_id?}
+    "link_copied",                # §P4 · 复制分享地址 · props {slug, letter_id?}
+    "new_letter_from_issue",      # Task 2.2 · 接收者转化点击 · props {slug, domain}
+    "issue_published",            # Task 5.2 · 公开收录开关翻转 · props {slug, is_public}
 }
 
 
@@ -105,7 +109,7 @@ def record_event(
     db: Session = Depends(get_db),
 ):
     """记录一条埋点。失败不阻塞前端（前端 fetch 静默 try/catch）。"""
-    # props_json size guard · 防爆表（10KB 上限够任何 8 个事件用）
+    # props_json size guard · 防爆表（10KB 上限够任何事件用）
     props_text: Optional[str] = None
     if payload.props is not None:
         props_text = json.dumps(payload.props, ensure_ascii=False)

@@ -33,6 +33,14 @@ from ..models import TestResult
 router = APIRouter(prefix="/issues", tags=["issues"])
 
 
+# 兜底归因页脚 · 渲染期幂等注入（详见 render_issue）。裸域名，靠 opacity 继承前景色。
+ATTRIBUTION = (
+    '<footer style="margin:48px 0 24px;text-align:center;'
+    'font-family:ui-monospace,monospace;font-size:10px;letter-spacing:0.18em;'
+    'opacity:0.45;">next.oriself.com</footer>'
+)
+
+
 def get_db():
     SessionLocal = get_sessionmaker()
     db = SessionLocal()
@@ -160,7 +168,25 @@ def render_issue(slug: str, db: Session = Depends(get_db)):
         ),
         "X-Content-Type-Options": "nosniff",
     }
-    return HTMLResponse(content=result.issue_html, headers=headers)
+
+    # 渲染期幂等注入兜底归因页脚（结构性保证，活在代码里；品味/样式归 skill prompt）。
+    # · 截图是主要传播媒介，页脚是截图里唯一的品牌面 → 必须在代码层保证它一定在。
+    # · 用裸域名（不是完整 /issues/{slug} URL）：完整 URL 会把 capability-slug 烙进
+    #   截图像素 = 等于把访问权发出去；且裸域名与 skill 的签名约定保持一致。
+    # · 页脚靠 opacity 继承报告前景色，能融进任何审美。
+    # · 正文已含域名时跳过注入——这是 skill 任务落地后新报告的预期路径（注入只服务
+    #   历史报告）；正文恰巧含域名的报告也会跳过注入——这是可接受的边界。
+    html = result.issue_html
+    if "next.oriself.com" not in html:
+        # 注入点 fallback 链：</body> → </html> → 裸 append
+        # （guardrails 只强制 <html>...</html>，不强制 <body>）
+        for anchor in ("</body>", "</html>"):
+            if anchor in html:
+                html = html.replace(anchor, ATTRIBUTION + anchor, 1)
+                break
+        else:
+            html = html + ATTRIBUTION
+    return HTMLResponse(content=html, headers=headers)
 
 
 @router.patch("/{slug}/publish", response_model=IssueResponse)

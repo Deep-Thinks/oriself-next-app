@@ -80,17 +80,10 @@ def test_oversized_props_rejected(client):
 
 
 def test_all_whitelisted_events_accepted(client):
-    """8 个白名单事件每个都能落库。"""
-    events = [
-        "landing_enter_clicked",
-        "letter_created",
-        "round_reached",
-        "converge_clicked",
-        "converge_result_success",
-        "converge_result_failed",
-        "issue_opened",
-        "arrival_dismissed",
-    ]
+    """每个白名单事件都能落库。数据驱动自 ALLOWED_EVENTS，避免硬编码计数走样。"""
+    from oriself_server.routes.analytics import ALLOWED_EVENTS
+
+    events = sorted(ALLOWED_EVENTS)
     for e in events:
         r = client.post("/analytics/event", json={"event": e})
         assert r.status_code == 201, f"{e} failed: {r.text}"
@@ -101,3 +94,30 @@ def test_all_whitelisted_events_accepted(client):
     with SessionLocal() as db:
         count = db.query(AnalyticsEvent).count()
         assert count == len(events)
+
+
+def test_new_letter_from_issue_event_accepted(client):
+    """Task 2.2/2.5 · 受众分流转化点击事件入白名单，props 透传落库。"""
+    r = client.post(
+        "/analytics/event",
+        json={"event": "new_letter_from_issue", "props": {"slug": "x", "domain": "mbti"}},
+    )
+    assert r.status_code == 201, r.text
+
+    from oriself_server.database import get_sessionmaker
+
+    SessionLocal = get_sessionmaker()
+    with SessionLocal() as db:
+        evt = db.query(AnalyticsEvent).order_by(AnalyticsEvent.id.desc()).first()
+        assert evt is not None
+        assert evt.event == "new_letter_from_issue"
+        assert json.loads(evt.props_json) == {"slug": "x", "domain": "mbti"}
+
+
+def test_issue_published_event_accepted(client):
+    """Task 5.2/2.5 · 公开收录开关翻转事件入白名单。"""
+    r = client.post(
+        "/analytics/event",
+        json={"event": "issue_published", "props": {"slug": "x", "is_public": True}},
+    )
+    assert r.status_code == 201, r.text
