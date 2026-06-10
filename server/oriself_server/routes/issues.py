@@ -104,6 +104,7 @@ def list_public_issues(db: Session = Depends(get_db)):
         .filter(TestResult.issue_is_public.is_(True))
         .filter(TestResult.issue_html.isnot(None))
         .order_by(TestResult.issue_generated_at.desc())
+        .limit(500)  # sitemap/画廊防全表；500 远超当前量级，到了再分页
         .all()
     )
     return [

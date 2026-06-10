@@ -166,5 +166,7 @@ python -m oriself_server.cli --provider mock   # 终端里直接跑一封信
 | 2026-04-18 22:30:17 | 初始化根级 CLAUDE.md；创建 `web/CLAUDE.md`、`server/CLAUDE.md`；写入 `.claude/index.json` | `/zcf:init-project` 自适应扫描 |
 | *(保留给手写记录；本行以下内容在重新运行时不会被覆盖)* | | |
 | 2026-05-17 | issue 访问模型改为 capability-URL（slug 即凭证）：删除 `is_public`→403 访问门，slug 增熵至 64bit，移除前端「公开/私有」toggle，issue 页加 `robots noindex`。`issue_is_public` 保留作未来公开展示墙的收录标记 | 手动 · 修私有报告本人打不开的 bug |
+| 2026-06-10 | **D-A（契约级）**：`GET /issues/{slug}` 不再返回 `letter_id`——`letter_id`(=session_id) 成为 owner-only capability（仅 owner 浏览器 localStorage 持有），一刀堵掉 P0 owner_token 回取链 + transcript 泄漏 + HistorySync 身份污染。前端 owner 态全部改为按 slug 反查 localStorage（`findByIssueSlug`/`isOwnerOf`/`getOwnerToken`），跨浏览器经 `#claim=` 认领链接移交 publish 权 | 增长方案 v3.2.1（virality-retention-uplift）·Batch 0 |
+| 2026-06-10 | **增长方案 v3.2.1 落地**：自转发受众分流（接收者 accent 换「写一封自己的」）+ 分享文案/归因页脚/落款域名 + OG 身份 token/竖版分享图/excerpt 三面共用 + ISR 实效化 + 画廊接进动线/公开回报闭环 + 域交叉「换个命题」/信匣导出。新增列 `test_results.issue_excerpt`（in-place 迁移）。D-1 存量转私有+种子集见 `docs/ops/2026-06-seed-gallery-runbook.md`（待 sign-off，未执行） | 增长方案 v3.2.1 · Batch 0-7 |
 
 <!-- END ZCF:AUTO-GENERATED (root) -->
