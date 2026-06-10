@@ -21,6 +21,7 @@ v2.7 设计原则（plan v0.3 §1.A-6）：
     link_copied                 props: {slug, letter_id?}
     new_letter_from_issue       props: {slug, domain}  · 接收者转化点击（报告页「也给自己写一封」）
     issue_published             props: {slug, is_public}  · 公开收录开关翻转（公开率）
+    share_card_opened           props: {slug}  · owner 打开竖版分享图（朋友圈/小红书弱入口）
 """
 from __future__ import annotations
 
@@ -60,6 +61,7 @@ ALLOWED_EVENTS = {
     "link_copied",                # §P4 · 复制分享地址 · props {slug, letter_id?}
     "new_letter_from_issue",      # Task 2.2 · 接收者转化点击 · props {slug, domain}
     "issue_published",            # Task 5.2 · 公开收录开关翻转 · props {slug, is_public}
+    "share_card_opened",          # Task 4.2 · owner 打开竖版分享图 · props {slug}
 }
 
 

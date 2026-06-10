@@ -68,6 +68,18 @@ export default async function IssuePage({
 
       {/* Hidden heading for accessibility / crawlers */}
       <h1 className="sr-only">{meta.title} · OriSelf Issue</h1>
+
+      {/* 实验性 · 微信「转发取首图」兜底：1px 近不可见 img 指向 OG 图，给微信首图启发式一个抓手。
+          用 opacity:0.01 + position:absolute（不能用 display:none——微信首图启发式会跳过 display:none）。
+          真机微信验证后再决定保留 / 移除。 */}
+      <img
+        src={`/issues/${slug}/opengraph-image`}
+        alt=""
+        width={1}
+        height={1}
+        aria-hidden
+        style={{ position: "absolute", opacity: 0.01, pointerEvents: "none" }}
+      />
     </>
   );
 }

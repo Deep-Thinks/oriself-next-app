@@ -146,28 +146,50 @@ export function IssueChrome({ slug, domain, title }: Props) {
                 </span>
               </button>
             ) : isOwner ? (
-              // OWNER · 复制地址 = accent primary（分享是拉新主杠杆，视觉权重最高）
-              <button
-                type="button"
-                onClick={handleCopyLink}
-                aria-label="复制这封信的地址"
-                className="group inline-flex items-center gap-[6px] border border-accent/70 rounded-[2px] px-[10px] py-[5px] normal-case tracking-[0.04em] transition-colors hover:border-accent hover:bg-accent/5"
-                title="复制这封信的地址，分享给想看的人"
-              >
-                <span
-                  className={`fraunces-body italic text-[11px] transition-colors ${
-                    copied ? "text-accent" : "text-accent group-hover:text-accent"
-                  }`}
+              <>
+                {/* OWNER · 复制地址 = accent primary（分享是拉新主杠杆，视觉权重最高） */}
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  aria-label="复制这封信的地址"
+                  className="group inline-flex items-center gap-[6px] border border-accent/70 rounded-[2px] px-[10px] py-[5px] normal-case tracking-[0.04em] transition-colors hover:border-accent hover:bg-accent/5"
+                  title="复制这封信的地址，分享给想看的人"
                 >
-                  {copied ? "已抄下" : "复制地址"}
-                </span>
-                <span
-                  aria-hidden
-                  className="font-mono text-[12px] leading-none not-italic text-accent transition-colors"
+                  <span
+                    className={`fraunces-body italic text-[11px] transition-colors ${
+                      copied ? "text-accent" : "text-accent group-hover:text-accent"
+                    }`}
+                  >
+                    {copied ? "已抄下" : "复制地址"}
+                  </span>
+                  <span
+                    aria-hidden
+                    className="font-mono text-[12px] leading-none not-italic text-accent transition-colors"
+                  >
+                    {copied ? "✓" : "⎘"}
+                  </span>
+                </button>
+                {/* 存一张图 · owner-only 弱入口（不碰 accent；微信 webview 不支持 download，开新页长按保存） */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== "undefined")
+                      window.open(`/issues/${slug}/share-card`);
+                    trackEvent("share_card_opened", { slug });
+                  }}
+                  aria-label="存一张分享图"
+                  title="存一张竖图，发朋友圈 / 小红书（长按保存）"
+                  className="group inline-flex items-center gap-[6px] text-ink-muted hover:text-accent transition-colors normal-case tracking-[0.08em] text-[11px] cursor-pointer bg-transparent border-0 p-0"
                 >
-                  {copied ? "✓" : "⎘"}
-                </span>
-              </button>
+                  <span className="fraunces-body italic">存一张图</span>
+                  <span
+                    aria-hidden
+                    className="font-mono text-[12px] leading-none not-italic"
+                  >
+                    ↓
+                  </span>
+                </button>
+              </>
             ) : (
               // RECEIVER · 「写一封自己的」接管 accent primary；复制地址降为弱文本链接（再转发仍有价值）
               <>

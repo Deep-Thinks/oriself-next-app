@@ -21,7 +21,8 @@ export type AnalyticsEvent =
   | "arrival_dismissed"
   | "link_copied" // §P4 · 报告页复制分享地址（可发现性验证）
   | "new_letter_from_issue" // Batch 2 · 接收者从报告页点「写一封自己的」
-  | "issue_published"; // Batch 2 · 本人把报告公开到画廊
+  | "issue_published" // Batch 2 · 本人把报告公开到画廊
+  | "share_card_opened"; // Task 4.2 · owner 打开竖版分享图（朋友圈/小红书弱入口）
 
 export function trackEvent(
   event: AnalyticsEvent,
