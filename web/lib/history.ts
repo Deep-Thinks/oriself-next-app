@@ -210,3 +210,16 @@ export function getOwnerToken(slug: string): string | null {
   consumeClaimFromHash(slug);
   return findByIssueSlug(slug)?.ownerToken ?? getClaim(slug);
 }
+
+/**
+ * owner 视角判定（受众分流 / is_owner 埋点的唯一事实源）：先幂等消费 #claim=，
+ * 再判「本浏览器有此信的本地条目 或 持有认领凭证」。
+ *
+ * 注意与 getOwnerToken 的差别：getOwnerToken 要 `ownerToken`（publish 凭证），
+ * 这里只要「有本地条目或 claim」——legacy 无 token 条目的主人也算 owner（看 owner 视角 CTA、
+ * 不被当接收者），但没有 publish 开关（无凭证）。两者刻意分离，不要合并。
+ */
+export function isOwnerOf(slug: string): boolean {
+  consumeClaimFromHash(slug);
+  return !!findByIssueSlug(slug) || getClaim(slug) !== null;
+}

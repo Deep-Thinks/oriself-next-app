@@ -20,7 +20,10 @@ export function LandingEnterLink({ children, className, domain = "mbti" }: Props
   return (
     <Link
       href={href}
-      onClick={() => trackEvent("landing_enter_clicked")}
+      // /letters/new 是带副作用的 GET（渲染即 createLetter 落一行 test_sessions）；
+      // 关预取避免 hover/进视口就造孤儿会话（Task 3.1 的统一防线，这枚入口先就位）。
+      prefetch={false}
+      onClick={() => trackEvent("landing_enter_clicked", { domain })}
       className={className}
     >
       {children}

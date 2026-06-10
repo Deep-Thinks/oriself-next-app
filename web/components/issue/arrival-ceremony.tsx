@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { trackEvent } from "@/lib/analytics";
+import { buildShareText } from "@/lib/share";
 
 interface Props {
   slug: string;
+  /** 复制动作用 buildShareText 把标题写进分享文本（打字机仍只显示纯地址）。 */
+  title: string;
 }
 
 type DismissTrigger = "auto" | "keyboard" | "click_view_letter" | "click_copy";
@@ -29,7 +32,7 @@ type DismissTrigger = "auto" | "keyboard" | "click_view_letter" | "click_copy";
  *   - 地址点击即复制；下方出现「已抄下 ✓」
  *   - 关闭时 router.replace 去掉 `?arrived=1`，刷新不会重播
  */
-export function ArrivalCeremony({ slug }: Props) {
+export function ArrivalCeremony({ slug, title }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shouldShow = searchParams.get("arrived") === "1";
@@ -121,13 +124,14 @@ export function ArrivalCeremony({ slug }: Props) {
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(fullUrl);
+      // 仪式的主角是地址本身 → 打字机 displayAddr 保持纯地址；只有复制动作携带标题钩子文本。
+      await navigator.clipboard.writeText(buildShareText(title, fullUrl));
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
     } catch {
       // 静默：极少数浏览器禁了 clipboard；底栏还有一枚 pill 兜底
     }
-  }, [fullUrl]);
+  }, [fullUrl, title]);
 
   if (!open) return null;
 

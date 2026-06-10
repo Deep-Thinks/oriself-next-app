@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { findByIssueSlug } from "@/lib/history";
+import { findByIssueSlug, isOwnerOf } from "@/lib/history";
 import { trackEvent } from "@/lib/analytics";
 
 interface Props {
@@ -20,11 +20,16 @@ interface Props {
  */
 export function IssueOpenedTracker({ slug }: Props) {
   useEffect(() => {
-    const letterId = findByIssueSlug(slug)?.letterId;
+    // isOwnerOf 内部已幂等消费 #claim= 并统一 owner 判定（与 issue-chrome 同源）。
+    const isOwner = isOwnerOf(slug);
+    const entry = findByIssueSlug(slug);
+    const referrer =
+      (typeof document !== "undefined" ? document.referrer.slice(0, 200) : "") ||
+      null;
     trackEvent(
       "issue_opened",
-      { slug, letter_id: letterId ?? null },
-      letterId ?? undefined,
+      { slug, letter_id: entry?.letterId ?? null, is_owner: isOwner, referrer },
+      entry?.letterId ?? undefined,
     );
   }, [slug]);
   return null;

@@ -119,7 +119,11 @@ export function LetterView({
     } catch {
       // storage 不可用时仍发一次，宁可重复也不漏（漏斗顶端不能丢）
     }
-    trackEvent("letter_created", { letter_id: letterId }, letterId);
+    trackEvent(
+      "letter_created",
+      { letter_id: letterId, domain: initialState.domain },
+      letterId,
+    );
   }, [letterId, initialTurns.length]);
 
   // ============================================================

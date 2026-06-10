@@ -63,7 +63,7 @@ export default async function IssuePage({
 
       {/* 封缄时刻 · 仅在 ?arrived=1 首次到达时出现 */}
       <Suspense fallback={null}>
-        <ArrivalCeremony slug={meta.slug} />
+        <ArrivalCeremony slug={meta.slug} title={meta.title} />
       </Suspense>
 
       {/* Hidden heading for accessibility / crawlers */}
