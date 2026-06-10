@@ -10,7 +10,10 @@ Issue 是一封信收敛后由 LLM 生成的完整 HTML 报告——每个 MBTI 
 提供：
 - `GET /issues/{slug}`            · 元数据（JSON）
 - `GET /issues/{slug}/render`     · 完整 HTML 文档，供前端 iframe 沙箱嵌入
-- `PATCH /issues/{slug}/publish`  · 切换 issue_is_public（展示墙开关；MVP 不鉴权）
+- `PATCH /issues/{slug}/publish`  · 切换 issue_is_public（展示墙开关；compare_digest(owner_token) 鉴权）
+
+鉴权模型：访问凭 slug（capability-URL）；翻转收录状态凭 owner_token（compare_digest 比对）。
+letter_id 是 owner-only capability，仅 owner 浏览器持有，不出现在任何公开元数据里（Batch 0 / D-A）。
 """
 from __future__ import annotations
 
@@ -44,13 +47,13 @@ def get_db():
 # ---------------------------------------------------------------------------
 
 
+# letter_id 不出现在公开元数据：它是 owner capability（仅 owner 浏览器持有），见 Batch 0 / D-A。
 class IssueResponse(BaseModel):
     slug: str
     title: str
     mbti_type: str
     is_public: bool
     created_at: datetime
-    letter_id: Optional[str] = None  # owner 操作（回看对话）入口
     domain: str = "mbti"             # mbti | major
     result_label: Optional[str] = None  # major 方向标签；mbti 为 None
 
@@ -122,7 +125,6 @@ def get_issue(slug: str, db: Session = Depends(get_db)):
         mbti_type=result.mbti_type,
         is_public=result.issue_is_public,
         created_at=result.issue_generated_at or result.created_at,
-        letter_id=result.session_id,
         domain=_issue_domain(result),
         result_label=result.result_label,
     )
@@ -169,7 +171,8 @@ def publish_issue(
     切换 issue_is_public（是否收录进未来的公开展示墙）。
 
     注意：这不影响访问——任何持有 slug 的人都能看 issue。此开关只决定将来
-    展示墙是否列出它。MVP 不鉴权；生产阶段应换成 owner token / JWT。
+    展示墙是否列出它。鉴权：compare_digest 比对 converge 时下发的 owner_token，
+    仅本人可翻转；owner_token 不出现在任何公开元数据里。
     """
     result = (
         db.query(TestResult)
@@ -193,7 +196,6 @@ def publish_issue(
         mbti_type=result.mbti_type,
         is_public=result.issue_is_public,
         created_at=result.issue_generated_at or result.created_at,
-        letter_id=result.session_id,
         domain=_issue_domain(result),
         result_label=result.result_label,
     )
