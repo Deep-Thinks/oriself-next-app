@@ -27,6 +27,14 @@ function baseUrl(): string {
 }
 
 /**
+ * 带 HTTP 状态码的 API 错误（message 仍走脱敏，对既有调用方透明 —— ApiError extends Error）。
+ * 调用方可凭 `err instanceof ApiError && err.status === 403` 做精确处理（如认领凭证失效自清）。
+ */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
+
+/**
  * 把后端/上游 provider 的原始错误文本脱敏成一句"人话"。
  *
  * 原则：
@@ -83,7 +91,7 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
         `[oriself api] ${res.status} ${res.statusText} @ ${path} :: ${(text || "").slice(0, 400)}`,
       );
     }
-    throw new Error(friendlyError(`${res.status} ${text}`));
+    throw new ApiError(friendlyError(`${res.status} ${text}`), res.status);
   }
   return res.json() as Promise<T>;
 }

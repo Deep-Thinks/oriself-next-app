@@ -77,7 +77,7 @@ export interface IssueMeta {
   mbti_type: string;
   is_public: boolean;
   created_at: string;
-  letter_id?: string | null;
+  // letter_id 已移除：它是 owner-only capability，不再出现在公开元数据里（Batch 0 / D-A）。
   domain?: string;                  // mbti | major
   result_label?: string | null;     // major 方向标签
 }

@@ -6,7 +6,7 @@
  */
 
 const STORAGE_KEY = "oriself:letters:v1";
-const MAX_ENTRIES = 10;
+const MAX_ENTRIES = 50;
 
 export interface LocalLetterEntry {
   letterId: string;
@@ -45,10 +45,36 @@ function safeRead(): LocalLetterEntry[] {
   }
 }
 
+/**
+ * 容量淘汰 · D-A 后 localStorage 是 ownerToken+letterId 的唯一事实源，
+ * 误删一条 = 永久销毁那封信的 publish 权 + 回看（连认领链接都无法再生）。
+ * 因此淘汰必须保护带 ownerToken 的条目：只淘汰无 token 条目（最旧优先）；
+ * 仅当带 token 的条目自身就超过 MAX_ENTRIES 时，才不得已淘汰最旧的 token 条目（并 warn）。
+ */
+function evict(list: LocalLetterEntry[]): LocalLetterEntry[] {
+  if (list.length <= MAX_ENTRIES) return list;
+  const byRecent = [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+  const withToken = byRecent.filter((e) => !!e.ownerToken);
+  const noToken = byRecent.filter((e) => !e.ownerToken);
+
+  if (withToken.length >= MAX_ENTRIES) {
+    if (withToken.length > MAX_ENTRIES) {
+      console.warn(
+        `[oriself history] owner-token 条目(${withToken.length}) 已超过上限(${MAX_ENTRIES})，` +
+          `不得已淘汰最旧的 owner 条目；其 publish 权将丢失。`,
+      );
+    }
+    return withToken.slice(0, MAX_ENTRIES);
+  }
+  // token 条目全保留，剩余名额给最近的无 token 条目。
+  const room = MAX_ENTRIES - withToken.length;
+  return [...withToken, ...noToken.slice(0, room)];
+}
+
 function safeWrite(list: LocalLetterEntry[]): void {
   if (!isBrowser()) return;
   try {
-    const trimmed = list.slice(0, MAX_ENTRIES);
+    const trimmed = evict(list);
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
     /* quota / private mode — silent */
@@ -58,6 +84,11 @@ function safeWrite(list: LocalLetterEntry[]): void {
 /** 读全部条目，按 updatedAt 降序。 */
 export function getAllLetters(): LocalLetterEntry[] {
   return [...safeRead()].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** 按 issueSlug 反查本地条目 · owner 判定的唯一事实源（D-A：letter_id 不再走公开 API）。 */
+export function findByIssueSlug(slug: string): LocalLetterEntry | null {
+  return getAllLetters().find((e) => e.issueSlug === slug) ?? null;
 }
 
 /**
@@ -114,4 +145,68 @@ export function removeLetter(letterId: string): void {
 
 export function clearLetters(): void {
   safeWrite([]);
+}
+
+// ───── 认领凭证（跨浏览器 owner 权移交，微信场景） ─────
+
+const CLAIMS_KEY = "oriself:claims:v1";   // { [slug]: ownerToken } · 认领的 publish 凭证
+
+/**
+ * 读 claims map · 任何非「纯对象」的脏值（array / number / null / 解析失败）一律归零成 {}，
+ * 避免后续 `map[slug]=token` 把脏结构写回去越腌越坏（凭证存储是 publish 权的事实源，要硬）。
+ */
+function readClaimMap(): Record<string, string> {
+  if (!isBrowser()) return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(CLAIMS_KEY) ?? "{}");
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, string>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeClaimMap(map: Record<string, string>): void {
+  if (!isBrowser()) return;
+  try {
+    window.localStorage.setItem(CLAIMS_KEY, JSON.stringify(map));
+  } catch { /* quota / private mode — silent */ }
+}
+
+export function getClaim(slug: string): string | null {
+  const v = readClaimMap()[slug];
+  return typeof v === "string" ? v : null;
+}
+
+export function setClaim(slug: string, token: string): void {
+  if (!isBrowser()) return;
+  const map = readClaimMap();
+  map[slug] = token;
+  writeClaimMap(map);
+}
+
+export function clearClaim(slug: string): void {
+  if (!isBrowser()) return;
+  const map = readClaimMap();
+  delete map[slug];
+  writeClaimMap(map);
+}
+
+/**
+ * 幂等消费 URL fragment 里的认领凭证（#claim=<token>）：解析→落 store→抹 fragment。
+ * 正则不锚定结尾：微信页内转发可能往 URL 尾部拼 from=singlemessage 等参数。
+ */
+export function consumeClaimFromHash(slug: string): void {
+  if (!isBrowser()) return;
+  const m = window.location.hash.match(/#claim=([0-9a-f]{32})/);
+  if (!m) return;
+  setClaim(slug, m[1]);
+  window.history.replaceState(null, "", window.location.pathname + window.location.search);
+}
+
+/** owner 凭证统一入口：先幂等消费 fragment，再查「本浏览器写出(ownerToken)或认领(claim)」。 */
+export function getOwnerToken(slug: string): string | null {
+  consumeClaimFromHash(slug);
+  return findByIssueSlug(slug)?.ownerToken ?? getClaim(slug);
 }

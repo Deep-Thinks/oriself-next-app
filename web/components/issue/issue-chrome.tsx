@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FeedbackSheet } from "@/components/feedback/feedback-sheet";
 import { AuthorModal } from "@/components/primitives/author-modal";
 import { PublishToggle } from "@/components/issue/publish-toggle";
+import { findByIssueSlug } from "@/lib/history";
 import { trackEvent } from "@/lib/analytics";
 
 interface Props {
   slug: string;
-  letterId?: string;
+  /** Batch 2（受众分流）将用到；Batch 0 仅透传，暂不读。 */
+  domain?: string;
+  /** Batch 2（分享文案）将用到；Batch 0 仅透传，暂不读。 */
+  title: string;
 }
 
 /**
@@ -24,11 +28,18 @@ interface Props {
  *    主动「公开到画廊」才放开收录（PublishToggle —— 仅持本地 owner_token 的本人可见）。
  *  - 复制地址按钮一点即复制完整 URL，分享给想看的人。
  */
-export function IssueChrome({ slug, letterId }: Props) {
+export function IssueChrome({ slug }: Props) {
   const [copied, setCopied] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [authorOpen, setAuthorOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // D-A：letter_id 不再走公开 API。owner 态（含「回看」入口）由本地历史按 slug 反查。
+  // localStorage 只能在客户端读 → useState+useEffect 保证 SSR 期不读、避免 hydration 失配。
+  const [letterId, setLetterId] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    setLetterId(findByIssueSlug(slug)?.letterId);
+  }, [slug]);
 
   const handleCopyLink = useCallback(async () => {
     try {
@@ -93,7 +104,7 @@ export function IssueChrome({ slug, letterId }: Props) {
               AUTHOR
             </button>
             {/* 公开到画廊 · 仅持本地 owner_token 的本人可见，作为弱文本链接（不抢 accent 预算） */}
-            <PublishToggle slug={slug} letterId={letterId} />
+            <PublishToggle slug={slug} />
           </div>
 
           {/* 右：复制地址 · 反馈 */}

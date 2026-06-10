@@ -4,7 +4,6 @@ import { getIssue } from "@/lib/api";
 import { IssueChrome } from "@/components/issue/issue-chrome";
 import { IssueFrame } from "@/components/issue/issue-frame";
 import { IssueOpenedTracker } from "@/components/issue/issue-opened-tracker";
-import { HistorySync } from "@/components/history/history-sync";
 import { ArrivalCeremony } from "@/components/issue/arrival-ceremony";
 
 /**
@@ -46,26 +45,12 @@ export default async function IssuePage({
       {/* The iframe IS the page. 暖纸托底 + opacity 显影（z-10 底 < z-20 iframe < z-30 chrome）。 */}
       <IssueFrame src={renderUrl} title={meta.title} />
 
-      <IssueChrome
-        slug={meta.slug}
-        letterId={meta.letter_id ?? undefined}
-      />
+      {/* D-A：letter_id 不再走公开 API；owner 态由 IssueChrome 内部按 slug 反查本地历史。
+          domain/title 现在透传（供 Batch 2 受众分流用）。 */}
+      <IssueChrome slug={meta.slug} domain={meta.domain} title={meta.title} />
 
-      {/* A-6 · issue_opened 埋点（issue 页 mount 时一次） */}
-      <IssueOpenedTracker slug={meta.slug} letterId={meta.letter_id} />
-
-      {/* 直接访问报告链接时，补齐本地历史 */}
-      {meta.letter_id && (
-        <HistorySync
-          letterId={meta.letter_id}
-          status="completed"
-          issueSlug={meta.slug}
-          mbtiType={meta.mbti_type}
-          cardTitle={meta.title}
-          domain={meta.domain}
-          resultLabel={meta.result_label ?? undefined}
-        />
-      )}
+      {/* A-6 · issue_opened 埋点（issue 页 mount 时一次）；letterId 由组件内部按 slug 反查 */}
+      <IssueOpenedTracker slug={meta.slug} />
 
       {/* 封缄时刻 · 仅在 ?arrived=1 首次到达时出现 */}
       <Suspense fallback={null}>
