@@ -14,10 +14,17 @@ export default async function Image({
 }) {
   const { slug } = await params;
   const meta = await getIssue(slug).catch(() => null);
-  const title = meta?.title ?? "OriSelf";
-  // 把卡片上所有会出现的中文字符一起子集化，省一次往返。
+  const rawTitle = meta?.title ?? "OriSelf";
+  // 标题最长可达 200 字（schema card_title），固定 84px 会撑爆 630 画布：先截断再按长度阶梯降字号。
+  const title = rawTitle.length > 40 ? `${rawTitle.slice(0, 40)}…` : rawTitle;
+  const titleFontSize =
+    title.length <= 14 ? 84 : title.length <= 24 ? 64 : 52;
+  // 身份 token：mbti 显四字母；major 显真实方向标签，绝不显示占位 "MAJOR"。
+  const isMajor = meta?.domain === "major" || meta?.mbti_type === "MAJOR";
+  const token = isMajor ? (meta?.result_label ?? "专业方向") : (meta?.mbti_type ?? "");
+  // 把卡片上所有会出现的字符一起子集化（含 token / "专业方向" / 省略号），省一次往返。
   const font = await loadNotoSerifSCSubset(
-    `${title}ORISELF · 一封写给你的信next.oriself.com`,
+    `${title}…专业方向${token}ORISELF · 一封写给你的信next.oriself.com`,
   );
 
   return new ImageResponse(
@@ -37,15 +44,36 @@ export default async function Image({
       >
         <div
           style={{
-            fontSize: 30,
-            letterSpacing: 8,
-            opacity: 0.6,
+            display: "flex",
+            alignItems: "baseline",
+            gap: 24,
             marginBottom: 32,
           }}
         >
-          ORISELF · 一封写给你的信
+          <div style={{ fontSize: 30, letterSpacing: 8, opacity: 0.6 }}>
+            ORISELF · 一封写给你的信
+          </div>
+          {token ? (
+            <div
+              style={{
+                fontSize: 28,
+                letterSpacing: isMajor ? 2 : 11,
+                opacity: 0.85,
+                color: "#d8a25e",
+              }}
+            >
+              {token}
+            </div>
+          ) : null}
         </div>
-        <div style={{ fontSize: 84, fontWeight: 600, lineHeight: 1.15, display: "flex" }}>
+        <div
+          style={{
+            fontSize: titleFontSize,
+            fontWeight: 600,
+            lineHeight: 1.15,
+            display: "flex",
+          }}
+        >
           {title}
         </div>
         <div style={{ fontSize: 28, opacity: 0.7, marginTop: 48 }}>
