@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { getIssue } from "@/lib/api";
+import { getIssue, ApiError } from "@/lib/api";
 import { IssueChrome } from "@/components/issue/issue-chrome";
 import { IssueFrame } from "@/components/issue/issue-frame";
 import { IssueOpenedTracker } from "@/components/issue/issue-opened-tracker";
@@ -23,6 +23,11 @@ import { ArrivalCeremony } from "@/components/issue/arrival-ceremony";
 // 注意：letters/[id] 必须保持 force-dynamic（实时对话态），不要顺手改那边。
 export const revalidate = 3600;
 
+// 无预生成清单（slug 是凭证不可枚举），返回空数组即可让动态段进入 ISR 缓存池。
+export function generateStaticParams() {
+  return [];
+}
+
 export default async function IssuePage({
   params,
 }: {
@@ -33,8 +38,12 @@ export default async function IssuePage({
   let meta;
   try {
     meta = await getIssue(slug);
-  } catch {
-    notFound();
+  } catch (err) {
+    // 仅真 404 才走 notFound（可被 ISR 缓存）；瞬断/超时等抛出 → 不缓存，下次请求重试。
+    if (err instanceof ApiError && err.status === 404) {
+      notFound();
+    }
+    throw err;
   }
 
   // The render endpoint returns the full standalone HTML document.
@@ -94,7 +103,11 @@ export async function generateMetadata({
       },
       twitter: { card: "summary_large_image", title: meta.title, description: desc },
     };
-  } catch {
-    return { title: { absolute: "OriSelf" } };
+  } catch (err) {
+    // 仅真 404 才返回兜底元数据（可被 ISR 缓存）；瞬断/超时抛出 → 不把临时失败冻进 ISR。
+    if (err instanceof ApiError && err.status === 404) {
+      return { title: { absolute: "OriSelf" } };
+    }
+    throw err;
   }
 }

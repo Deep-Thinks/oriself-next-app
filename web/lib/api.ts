@@ -280,13 +280,14 @@ export async function publishIssue(
 /**
  * 公开命题清单 · 仅服务端调用（sitemap.ts / 画廊页）。
  * 直连内网后端（不走浏览器 /api rewrite，因 sitemap 在无请求的构建/重校验上下文里执行）。
+ * ISR：revalidate 1h（避免 no-store 把画廊/sitemap 强制动态化，覆盖其页面级 revalidate）。
  * 后端不可达 → 返回 []，让 sitemap 仍能产出首页条目而非 500。
  */
 export async function listPublicIssues(): Promise<PublicIssueSummary[]> {
   const base = process.env.API_INTERNAL_URL || "http://localhost:8000";
   try {
     const res = await fetch(`${base}/issues/public`, {
-      cache: "no-store",
+      next: { revalidate: 3600 },
       signal: AbortSignal.timeout(3000),
     });
     if (!res.ok) return [];

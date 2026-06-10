@@ -2,6 +2,9 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/site";
 import { listPublicIssues } from "@/lib/api";
 
+// ISR：每 1h 重新生成 sitemap，让新公开的命题在 1h 内进入收录，无需等下次部署。
+export const revalidate = 3600;
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const issues = await listPublicIssues();
   return [
