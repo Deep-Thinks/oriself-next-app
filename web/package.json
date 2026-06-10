@@ -1,6 +1,6 @@
 {
   "name": "oriself-web",
-  "version": "3.2.0",
+  "version": "3.2.1",
   "private": true,
   "description": "OriSelf Next · Next.js frontend",
   "scripts": {
