@@ -3,7 +3,7 @@ FastAPI routes · 漏斗埋点（最薄版本）。
 
 v2.7 设计原则（plan v0.3 §1.A-6）：
 - 只埋"用户视角事件"，server 处理完成 round 这种已经有 logger.info 不再重复
-- 8 个白名单事件，其他 event 一律 400 拒收（防垃圾埋点扩散）
+- 9 个白名单事件，其他 event 一律 400 拒收（防垃圾埋点扩散）
 - ip_hash sha256(salt + ip) 单向，不存原 IP；salt 走 ORISELF_ANALYTICS_IP_SALT
   环境变量。原始 sha256(ip) 不安全：IPv4 空间小，离线 rainbow table 反查成本低。
 - props_json schema 不固定，allow event 自由附 letter_id / round / trigger 等
@@ -18,6 +18,7 @@ v2.7 设计原则（plan v0.3 §1.A-6）：
     converge_result_failed      props: {letter_id, reason?}
     issue_opened                props: {slug, letter_id?}
     arrival_dismissed           props: {trigger: "auto"/"keyboard"/"看信"/"复制地址", slug}
+    link_copied                 props: {slug, letter_id?}
 """
 from __future__ import annotations
 
@@ -54,6 +55,7 @@ ALLOWED_EVENTS = {
     "converge_result_failed",
     "issue_opened",
     "arrival_dismissed",
+    "link_copied",          # §P4 · 复制分享地址 · props {slug, letter_id?}
 }
 
 

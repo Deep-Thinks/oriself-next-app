@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { FeedbackSheet } from "@/components/feedback/feedback-sheet";
 import { AuthorModal } from "@/components/primitives/author-modal";
+import { PublishToggle } from "@/components/issue/publish-toggle";
+import { trackEvent } from "@/lib/analytics";
 
 interface Props {
   slug: string;
@@ -15,10 +17,11 @@ interface Props {
  *
  * 设计：
  *  - 默认半透明、几乎贴底、文字而非图标，让 iframe 内的报告本身是视觉主角。
- *  - hover 时整条加深一点点，提示可交互。
- *  - 包含：← 返回首页 · 回看对话 · 再写一封 · 复制地址按钮 · 反馈
- *  - 访问模型是 capability-URL：slug 即钥匙。不分享链接就没人看得到，
- *    本人凭链接始终能看——所以这里没有"公开/私有"开关。
+ *  - 层级（P4）：复制地址 = 唯一 accent primary（拉新主杠杆）；反馈/导航降为弱文本链接，
+ *    纠正此前「反馈比分享更显眼」的层级倒置。accent 预算只花在复制地址一处。
+ *  - 包含：← 首页 · 回看 · 再写一封 · 公开到画廊(仅本人) · AUTHOR · 复制地址(primary) · 反馈
+ *  - 访问模型是 capability-URL：slug 即钥匙；报告默认私有(noindex)，本人凭 owner_token
+ *    主动「公开到画廊」才放开收录（PublishToggle —— 仅持本地 owner_token 的本人可见）。
  *  - 复制地址按钮一点即复制完整 URL，分享给想看的人。
  */
 export function IssueChrome({ slug, letterId }: Props) {
@@ -35,11 +38,13 @@ export function IssueChrome({ slug, letterId }: Props) {
           : `/issues/${slug}`;
       await navigator.clipboard.writeText(url);
       setCopied(true);
+      // §P4 · 复制分享地址埋点（可发现性 / 拉新验证）
+      trackEvent("link_copied", { slug, letter_id: letterId }, letterId);
       setTimeout(() => setCopied(false), 1600);
     } catch {
       setError("复制失败");
     }
-  }, [slug]);
+  }, [slug, letterId]);
 
   return (
     <>
@@ -47,11 +52,11 @@ export function IssueChrome({ slug, letterId }: Props) {
         className="fixed left-0 right-0 bottom-0 z-30 pointer-events-none"
         style={{
           background:
-            "linear-gradient(to top, rgba(245, 240, 230, 0.96) 0%, rgba(245, 240, 230, 0.86) 60%, rgba(245, 240, 230, 0))",
+            "linear-gradient(to top, rgba(245, 240, 230, 0.99) 0%, rgba(245, 240, 230, 0.86) 60%, rgba(245, 240, 230, 0))",
         }}
       >
         <nav
-          className="pointer-events-auto max-w-[920px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex flex-wrap items-center justify-between gap-x-4 sm:gap-x-6 gap-y-2 font-mono text-[10px] tracking-widest uppercase text-ink-muted"
+          className="pointer-events-auto max-w-[920px] mx-auto px-4 sm:px-6 py-3.5 sm:py-4 flex flex-wrap items-center justify-between gap-x-4 sm:gap-x-6 gap-y-2 font-mono text-[10px] tracking-widest uppercase text-ink-muted"
           aria-label="报告操作"
         >
           {/* 左：导航 + 作者入口 */}
@@ -74,7 +79,7 @@ export function IssueChrome({ slug, letterId }: Props) {
             )}
             <Link
               href="/letters/new"
-              className="hover:text-accent transition-colors"
+              className="text-ink-soft hover:text-accent transition-colors"
               aria-label="开始一封新的信"
             >
               再写一封 →
@@ -87,42 +92,40 @@ export function IssueChrome({ slug, letterId }: Props) {
             >
               AUTHOR
             </button>
+            {/* 公开到画廊 · 仅持本地 owner_token 的本人可见，作为弱文本链接（不抢 accent 预算） */}
+            <PublishToggle slug={slug} letterId={letterId} />
           </div>
 
           {/* 右：复制地址 · 反馈 */}
           <div className="flex items-center flex-wrap gap-x-3 sm:gap-x-4 gap-y-2">
             {/* 复制地址按钮 · 中文文案 + ⎘；点击即复制完整 URL */}
+            {/* P4 · 唯一 accent primary：分享是拉新主杠杆，视觉权重最高 */}
             <button
               type="button"
               onClick={handleCopyLink}
               aria-label="复制这封信的地址"
-              className="group inline-flex items-center gap-[6px] border border-rule-strong rounded-[2px] px-[10px] py-[5px] normal-case tracking-[0.04em] transition-colors hover:border-accent hover:text-accent"
+              className="group inline-flex items-center gap-[6px] border border-accent/70 rounded-[2px] px-[10px] py-[5px] normal-case tracking-[0.04em] transition-colors hover:border-accent hover:bg-accent/5"
               title="复制这封信的地址，分享给想看的人"
             >
               <span
                 className={`fraunces-body italic text-[11px] transition-colors ${
-                  copied
-                    ? "text-accent"
-                    : "text-ink-soft group-hover:text-accent"
+                  copied ? "text-accent" : "text-accent group-hover:text-accent"
                 }`}
               >
                 {copied ? "已抄下" : "复制地址"}
               </span>
               <span
                 aria-hidden
-                className={`font-mono text-[12px] leading-none not-italic transition-colors ${
-                  copied
-                    ? "text-accent"
-                    : "text-ink-muted group-hover:text-accent"
-                }`}
+                className="font-mono text-[12px] leading-none not-italic text-accent transition-colors"
               >
                 {copied ? "✓" : "⎘"}
               </span>
             </button>
+            {/* P4 · 反馈降为弱文本链接（此前是最显眼按钮，造成「反馈>分享」层级倒置） */}
             <button
               type="button"
               onClick={() => setFeedbackOpen(true)}
-              className="group inline-flex items-center gap-[6px] border border-accent/70 hover:border-accent hover:bg-accent/5 text-accent transition-colors px-[10px] py-[5px] rounded-[2px] normal-case tracking-[0.08em] text-[11px] cursor-pointer"
+              className="group inline-flex items-center gap-[6px] text-ink-muted hover:text-accent transition-colors normal-case tracking-[0.08em] text-[11px] cursor-pointer bg-transparent border-0 p-0"
               aria-label="对这封信提反馈"
               title="对这封信说一句（匿名，1 分钟就好）"
             >

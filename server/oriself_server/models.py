@@ -146,6 +146,10 @@ class TestResult(Base):
     issue_title = Column(String(200))
     issue_html = Column(Text)
     issue_is_public = Column(Boolean, default=False, nullable=False)
+    # §5 · owner capability token，converge 时生成、仅从 POST /letters/{id}/result 下发。
+    # 是 PATCH /issues/{slug}/publish 翻转 issue_is_public 的唯一凭证；GET /issues/{slug}
+    # 绝不回显。旧库行为 NULL（无凭证 → 无法公开）。
+    issue_owner_token = Column(String(64), nullable=True)
     issue_generated_at = Column(DateTime)
 
     created_at = Column(DateTime, default=_utcnow)

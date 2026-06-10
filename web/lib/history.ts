@@ -21,6 +21,8 @@ export interface LocalLetterEntry {
   /** v2.7 · 域（mbti | major）与 major 方向标签 */
   domain?: string;
   resultLabel?: string;
+  /** §5 · publish 凭证（converge 时下发，仅本人浏览器持有）；用于「公开到画廊」鉴权。 */
+  ownerToken?: string;
 }
 
 function isBrowser(): boolean {
@@ -98,6 +100,7 @@ export function upsertLetter(
       cardTitle: patch.cardTitle,
       domain: patch.domain,
       resultLabel: patch.resultLabel,
+      ownerToken: patch.ownerToken,
     };
     list.unshift(merged);
   }

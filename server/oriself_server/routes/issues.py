@@ -14,6 +14,7 @@ Issue 是一封信收敛后由 LLM 生成的完整 HTML 报告——每个 MBTI 
 """
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 from typing import Optional
 
@@ -61,11 +62,48 @@ def _issue_domain(result) -> str:
 
 class PublishRequest(BaseModel):
     is_public: bool
+    owner_token: str
+
+
+class PublicIssueItem(BaseModel):
+    slug: str
+    title: str
+    mbti_type: str
+    domain: str = "mbti"
+    result_label: Optional[str] = None
+    generated_at: datetime
 
 
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
+
+@router.get("/public", response_model=list[PublicIssueItem])
+def list_public_issues(db: Session = Depends(get_db)):
+    """收录进公开展示墙的命题（issue_is_public=1 且有渲染内容）。喂 sitemap + 画廊。
+
+    注意：必须声明在 `GET /{slug}` 之前，否则 `/public` 会被当成 slug 捕获（FastAPI 按
+    声明顺序匹配路由）。
+    """
+    rows = (
+        db.query(TestResult)
+        .filter(TestResult.issue_is_public.is_(True))
+        .filter(TestResult.issue_html.isnot(None))
+        .order_by(TestResult.issue_generated_at.desc())
+        .all()
+    )
+    return [
+        PublicIssueItem(
+            slug=r.issue_slug,
+            title=r.issue_title or r.mbti_type,
+            mbti_type=r.mbti_type,
+            domain=_issue_domain(r),
+            result_label=r.result_label,
+            generated_at=r.issue_generated_at or r.created_at,
+        )
+        for r in rows
+    ]
 
 
 @router.get("/{slug}", response_model=IssueResponse)
@@ -140,6 +178,12 @@ def publish_issue(
     )
     if result is None or not result.issue_html:
         raise HTTPException(status_code=404, detail="issue not found")
+    # §5 · 鉴权：仅持有 converge 时下发的 owner_token 的本人可翻转收录状态。
+    # compare_digest 防时序侧信道；旧库 token 为 NULL → 一律 403（无法公开）。
+    if not result.issue_owner_token or not secrets.compare_digest(
+        result.issue_owner_token, req.owner_token
+    ):
+        raise HTTPException(status_code=403, detail="not the owner of this issue")
     result.issue_is_public = req.is_public
     db.commit()
     db.refresh(result)

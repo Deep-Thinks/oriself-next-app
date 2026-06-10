@@ -14,6 +14,7 @@ import type {
   LetterResult,
   LetterState,
   LetterTranscript,
+  PublicIssueSummary,
   TurnDonePayload,
   TurnStatus,
 } from "./types";
@@ -62,13 +63,17 @@ export function friendlyError(raw: unknown): string {
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const url = `${baseUrl()}${path}`;
+  // 默认 no-store（letter live 状态必须实时）；但调用方显式给了 cache 或 next(ISR) 时
+  // 尊重调用方——不能同时塞 cache:no-store + next.revalidate，否则 Next 视为冲突、ISR 失效。
+  const useDefaultNoStore =
+    !init || (init.cache === undefined && !("next" in init));
   const res = await fetch(url, {
     ...init,
+    ...(useDefaultNoStore ? { cache: "no-store" as const } : {}),
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
-    cache: "no-store",
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -249,17 +254,39 @@ export const getResult = composeResult;
 // ───── Issues ─────
 
 export async function getIssue(slug: string): Promise<IssueMeta> {
-  return jsonFetch(`/issues/${slug}`);
+  // ISR：issue 元数据生成后基本不变，缓存 1h（覆盖 jsonFetch 的 no-store 默认）。
+  return jsonFetch(`/issues/${slug}`, { next: { revalidate: 3600 } });
 }
 
 export async function publishIssue(
   slug: string,
   isPublic: boolean,
+  ownerToken: string,
 ): Promise<IssueMeta> {
   return jsonFetch(`/issues/${slug}/publish`, {
     method: "PATCH",
-    body: JSON.stringify({ is_public: isPublic }),
+    body: JSON.stringify({ is_public: isPublic, owner_token: ownerToken }),
   });
+}
+
+/**
+ * 公开命题清单 · 仅服务端调用（sitemap.ts / 画廊页）。
+ * 直连内网后端（不走浏览器 /api rewrite，因 sitemap 在无请求的构建/重校验上下文里执行）。
+ * 后端不可达 → 返回 []，让 sitemap 仍能产出首页条目而非 500。
+ */
+export async function listPublicIssues(): Promise<PublicIssueSummary[]> {
+  const base = process.env.API_INTERNAL_URL || "http://localhost:8000";
+  try {
+    const res = await fetch(`${base}/issues/public`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return [];
+    const data: unknown = await res.json();
+    return Array.isArray(data) ? (data as PublicIssueSummary[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 // ───── Feedback ─────

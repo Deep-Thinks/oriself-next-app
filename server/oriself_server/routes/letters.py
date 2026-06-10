@@ -148,6 +148,7 @@ class ResultResponse(BaseModel):
     issue_slug: Optional[str] = None
     domain: str = "mbti"                       # mbti | major
     result_label: Optional[str] = None         # major 方向标签；mbti 为 None
+    owner_token: Optional[str] = None          # §5 · publish 凭证（仅本人持有）
 
 
 # ---------------------------------------------------------------------------
@@ -784,6 +785,7 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
                 issue_slug=existing.issue_slug,
                 domain=sess.domain,
                 result_label=existing.result_label,
+                owner_token=existing.issue_owner_token,
             )
 
         state = _load_session_state(db, letter_id)
@@ -874,6 +876,9 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
             else "{}"
         )
 
+        # §5 · 报告默认私有（issue_is_public=False）；本人凭 owner_token 主动「公开到画廊」
+        # 后才放开收录。slug 仍是访问凭证——私有不影响本人/被分享者凭链接访问。
+        owner_token = secrets.token_hex(16)  # 128-bit publish 凭证
         db.add(
             TestResult(
                 session_id=letter_id,
@@ -885,7 +890,8 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
                 issue_slug=slug,
                 issue_title=title,
                 issue_html=safe_html,
-                issue_is_public=True,
+                issue_is_public=False,
+                issue_owner_token=owner_token,
                 issue_generated_at=datetime.now(timezone.utc),
             )
         )
@@ -899,6 +905,7 @@ async def compose_result(letter_id: str, db: Session = Depends(get_db)):
             issue_slug=slug,
             domain=sess.domain,
             result_label=result_label,
+            owner_token=owner_token,
         )
     except HTTPException:
         raise

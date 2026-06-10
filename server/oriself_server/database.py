@@ -133,6 +133,27 @@ def init_db() -> None:
     except Exception:
         pass
 
+    # §5 · test_results.issue_owner_token（publish 凭证）。同上 in-place 迁移范式。
+    try:
+        url = str(engine.url)
+        with engine.begin() as conn:
+            if url.startswith("sqlite"):
+                cols = conn.exec_driver_sql(
+                    "PRAGMA table_info(test_results)"
+                ).fetchall()
+                existing = {row[1] for row in cols}
+                if "issue_owner_token" not in existing:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE test_results ADD COLUMN issue_owner_token VARCHAR(64)"
+                    )
+            else:
+                conn.exec_driver_sql(
+                    "ALTER TABLE test_results "
+                    "ADD COLUMN IF NOT EXISTS issue_owner_token VARCHAR(64)"
+                )
+    except Exception:
+        pass
+
 
 @contextmanager
 def session_scope() -> Iterator[Session]:

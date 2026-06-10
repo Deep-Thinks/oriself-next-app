@@ -3,7 +3,7 @@
  *
  * 设计：fire-and-forget，失败静默——埋点不能阻塞用户操作。
  *
- * 8 个白名单事件由后端 `routes/analytics.py::ALLOWED_EVENTS` 校验；
+ * 9 个白名单事件由后端 `routes/analytics.py::ALLOWED_EVENTS` 校验；
  * 这里的 TS 类型只是开发期提示，运行时由后端拒收 unknown event。
  *
  * 不引入任何第三方 SDK，不做批量缓冲——v2.7 只是要"从今天开始有漏斗"，
@@ -18,7 +18,8 @@ export type AnalyticsEvent =
   | "converge_result_success"
   | "converge_result_failed"
   | "issue_opened"
-  | "arrival_dismissed";
+  | "arrival_dismissed"
+  | "link_copied"; // §P4 · 报告页复制分享地址（可发现性验证）
 
 export function trackEvent(
   event: AnalyticsEvent,

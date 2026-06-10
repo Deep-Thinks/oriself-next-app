@@ -68,6 +68,7 @@ export interface LetterResult {
   issue_slug: string | null;
   domain?: string;                  // mbti | major
   result_label?: string | null;     // major 方向标签
+  owner_token?: string | null;      // §5 · publish 凭证（仅本人持有；converge 下发）
 }
 
 export interface IssueMeta {
@@ -92,4 +93,14 @@ export interface FeedbackPayload {
 export interface FeedbackResponse {
   id: number;
   created_at: string;
+}
+
+/** /issues/public · 公开命题清单项（喂 sitemap + 画廊）。 */
+export interface PublicIssueSummary {
+  slug: string;
+  title: string;
+  mbti_type: string;
+  domain?: string;
+  result_label?: string | null;
+  generated_at: string;
 }

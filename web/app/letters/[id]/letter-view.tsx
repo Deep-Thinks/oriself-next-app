@@ -201,6 +201,8 @@ export function LetterView({
             cardTitle: result.card_title ?? undefined,
             domain: result.domain,
             resultLabel: result.result_label ?? undefined,
+            // §5 · 把 publish 凭证存进本地历史，供 issue 页 PublishToggle 鉴权使用。
+            ownerToken: result.owner_token ?? undefined,
           });
           trackEvent(
             "converge_result_success",

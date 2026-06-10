@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { getIssue } from "@/lib/api";
 import { IssueChrome } from "@/components/issue/issue-chrome";
+import { IssueFrame } from "@/components/issue/issue-frame";
 import { IssueOpenedTracker } from "@/components/issue/issue-opened-tracker";
 import { HistorySync } from "@/components/history/history-sync";
 import { ArrivalCeremony } from "@/components/issue/arrival-ceremony";
@@ -18,7 +19,10 @@ import { ArrivalCeremony } from "@/components/issue/arrival-ceremony";
  *  - sandbox="allow-scripts" (no allow-same-origin = no access to parent)
  *  - src points to /api/issues/:slug/render which returns CSP-sandboxed HTML
  */
-export const dynamic = "force-dynamic";
+// ISR：issue 元数据/外壳生成后基本不变，缓存 1h 让公开页可被 CDN/爬虫高效抓取。
+// 报告正文是 iframe → /api/issues/:slug/render（始终动态），这里只缓存薄壳。
+// 注意：letters/[id] 必须保持 force-dynamic（实时对话态），不要顺手改那边。
+export const revalidate = 3600;
 
 export default async function IssuePage({
   params,
@@ -39,13 +43,8 @@ export default async function IssuePage({
 
   return (
     <>
-      {/* The iframe IS the page. Full viewport, chrome bar layered on top. */}
-      <iframe
-        src={renderUrl}
-        title={meta.title}
-        sandbox="allow-scripts"
-        className="fixed inset-0 w-full h-full border-0 z-20"
-      />
+      {/* The iframe IS the page. 暖纸托底 + opacity 显影（z-10 底 < z-20 iframe < z-30 chrome）。 */}
+      <IssueFrame src={renderUrl} title={meta.title} />
 
       <IssueChrome
         slug={meta.slug}
@@ -92,17 +91,25 @@ export async function generateMetadata({
     const desc = isMajor
       ? "一封关于你想学什么的信。"
       : `一封关于 ${meta.mbti_type} 的信。`;
+    const isPublic = !!meta.is_public;
     return {
-      title: `${meta.title} · OriSelf`,
+      // 裸标题 → 根 layout 的 title.template 追加 " · OriSelf"（避免双后缀）。
+      title: meta.title,
       description: desc,
-      // slug 即访问凭证：不让搜索引擎索引，未分享的链接才真正"私有"。
-      robots: { index: false, follow: false },
+      alternates: { canonical: `/issues/${slug}` },
+      // 私有命题：slug 仍是访问凭证，保持 noindex；用户主动公开后才放开收录。
+      robots: isPublic
+        ? { index: true, follow: true }
+        : { index: false, follow: false },
       openGraph: {
+        type: "article",
+        url: `/issues/${slug}`,
         title: meta.title,
         description: desc,
       },
+      twitter: { card: "summary_large_image", title: meta.title, description: desc },
     };
   } catch {
-    return { title: "OriSelf" };
+    return { title: { absolute: "OriSelf" } };
   }
 }
