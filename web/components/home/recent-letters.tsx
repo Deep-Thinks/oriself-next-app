@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
+  exportLetters,
   getAllLetters,
   removeLetter,
   type LocalLetterEntry,
@@ -18,6 +19,8 @@ import {
 export function RecentLetters() {
   const [entries, setEntries] = useState<LocalLetterEntry[]>([]);
   const [mounted, setMounted] = useState(false);
+  // 6.2 · 导出信匣的「已抄下」反馈（同 issue-chrome 的 copied 模式，1.6s 后复位）
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     setEntries(getAllLetters());
@@ -27,6 +30,16 @@ export function RecentLetters() {
   const handleRemove = useCallback((id: string) => {
     removeLetter(id);
     setEntries(getAllLetters());
+  }, []);
+
+  const handleExport = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(exportLetters());
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard 不可用（无 https / 权限）— 静默 */
+    }
   }, []);
 
   // SSR 期间 / 空历史 · 不渲染整块
@@ -45,6 +58,17 @@ export function RecentLetters() {
           <LetterRow key={e.letterId} entry={e} onRemove={handleRemove} />
         ))}
       </ul>
+      {/* 6.2 · 信匣导出 · 弱 mono 链接：抄下人可读清单 + JSON 凭证（换设备手动找回 publish 权的备份）。
+          仅做导出，不做导入/云/二维码（跨设备恢复靠认领链接，此处只是离线备份）。 */}
+      <button
+        type="button"
+        onClick={handleExport}
+        className="mt-6 font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0"
+        aria-label="导出信匣 · 抄下清单与凭证"
+        title="抄下你信匣的清单与凭证（换设备时粘贴回来即可找回）"
+      >
+        {copied ? "已抄下 ✓" : "导出信匣 ⎘"}
+      </button>
     </section>
   );
 }

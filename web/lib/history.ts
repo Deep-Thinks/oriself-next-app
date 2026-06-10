@@ -91,6 +91,19 @@ export function findByIssueSlug(slug: string): LocalLetterEntry | null {
   return getAllLetters().find((e) => e.issueSlug === slug) ?? null;
 }
 
+/** 信匣导出 · 人可读清单 + 末尾 JSON（含 ownerToken，用于换设备后手动找回 publish 权）。 */
+export function exportLetters(): string {
+  const entries = getAllLetters();
+  const lines = entries.map((e) => {
+    const d = new Date(e.createdAt).toISOString().slice(0, 10);
+    const url = e.issueSlug
+      ? `https://next.oriself.com/issues/${e.issueSlug}`
+      : `(未完成 · ${e.letterId.slice(0, 8)})`;
+    return `${d} · ${e.cardTitle ?? e.mbtiType ?? "一封信"} · ${url}`;
+  });
+  return `OriSelf 信匣 · ${entries.length} 封\n\n${lines.join("\n")}\n\n--- 凭证（换设备恢复用，请妥善保存） ---\n${JSON.stringify(entries, null, 2)}`;
+}
+
 /**
  * Upsert 一条记录。
  * - 新记录：补齐默认字段；createdAt 默认当前时间戳。

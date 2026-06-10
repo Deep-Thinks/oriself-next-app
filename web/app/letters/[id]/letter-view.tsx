@@ -632,7 +632,10 @@ export function LetterView({
       </main>
 
       {isCompleted ? (
-        <CompletedFooter issueSlug={issueSlug ?? null} />
+        <CompletedFooter
+          issueSlug={issueSlug ?? null}
+          domain={initialState.domain}
+        />
       ) : (
         <Composer
           onSend={handleSend}
@@ -655,7 +658,17 @@ export function LetterView({
   );
 }
 
-function CompletedFooter({ issueSlug }: { issueSlug: string | null }) {
+function CompletedFooter({
+  issueSlug,
+  domain,
+}: {
+  issueSlug: string | null;
+  domain?: string;
+}) {
+  // 6.1 · 域交叉「换个命题」：刚写完一封信 → 对面域有全新内容可写（major↔mbti）。
+  const crossDomain = domain === "major" ? "mbti" : "major";
+  const crossDomainLabel = domain === "major" ? "换个命题 · 性格画像" : "换个命题 · 专业方向";
+
   return (
     <footer
       // z-20 同步 Composer —— 保证"看报告"链接不会被 main 的 pb-padding 盖住
@@ -670,12 +683,31 @@ function CompletedFooter({ issueSlug }: { issueSlug: string | null }) {
           这封信已收尾 · 在回看
         </p>
         {issueSlug ? (
-          <Link
-            href={`/issues/${issueSlug}`}
-            className="fraunces-body italic text-[16px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px]"
-          >
-            看你的报告 <span className="font-mono not-italic">→</span>
-          </Link>
+          // 6.1 · 有报告时：弱文本「换个命题」（域交叉）置于 accent 主链「看报告」左侧，
+          // 保持从属（mono muted，不抢 accent 预算）。/letters/new 有副作用 → prefetch={false}。
+          <div className="flex items-center gap-5">
+            <Link
+              href={`/letters/new?domain=${crossDomain}`}
+              prefetch={false}
+              onClick={() =>
+                trackEvent("new_letter_from_issue", {
+                  slug: issueSlug,
+                  domain,
+                  cross_domain: true,
+                })
+              }
+              className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors whitespace-nowrap"
+              aria-label="换个命题，写另一域的信"
+            >
+              {crossDomainLabel} →
+            </Link>
+            <Link
+              href={`/issues/${issueSlug}`}
+              className="fraunces-body italic text-[16px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px] whitespace-nowrap"
+            >
+              看你的报告 <span className="font-mono not-italic">→</span>
+            </Link>
+          </div>
         ) : (
           <Link
             href="/letters/new"

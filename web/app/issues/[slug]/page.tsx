@@ -56,7 +56,12 @@ export default async function IssuePage({
 
       {/* D-A：letter_id 不再走公开 API；owner 态由 IssueChrome 内部按 slug 反查本地历史。
           domain/title 现在透传（供 Batch 2 受众分流用）。 */}
-      <IssueChrome slug={meta.slug} domain={meta.domain} title={meta.title} />
+      <IssueChrome
+        slug={meta.slug}
+        domain={meta.domain}
+        title={meta.title}
+        createdAt={meta.created_at}
+      />
 
       {/* A-6 · issue_opened 埋点（issue 页 mount 时一次）；letterId 由组件内部按 slug 反查 */}
       <IssueOpenedTracker slug={meta.slug} />

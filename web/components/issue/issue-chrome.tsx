@@ -15,6 +15,8 @@ interface Props {
   domain?: string;
   /** Batch 2（分享文案）：复制地址时用 buildShareText 把标题写进分享文本。 */
   title: string;
+  /** Batch 6.3（重读时刻）：报告生成时间，owner 且 >30 天时显示「写于 N 天前」。 */
+  createdAt?: string;
 }
 
 /**
@@ -28,11 +30,11 @@ interface Props {
  *        → 这枚 <Link> 接管 accent primary；复制地址降为弱文本链接（再转发仍有价值）。
  *      · 判定未完成（null）：渲染中性弱占位，绝不默认 owner 版再翻转——避免接收者侧 hydration 闪变。
  *    反馈/导航始终是弱文本链接，不参与 accent 预算。
- *  - 包含：← 首页 · 回看(owner) · 再写一封(owner) · 公开到画廊(仅本人) · AUTHOR · primary(分流) · 反馈
+ *  - 包含：← 首页 · 回看(owner) · 换个命题/域交叉(owner) · 公开到画廊(仅本人) · AUTHOR · primary(分流) · 反馈
  *  - 访问模型是 capability-URL：slug 即钥匙；报告默认私有(noindex)，本人凭 owner_token
  *    主动「公开到画廊」才放开收录（PublishToggle —— 仅持本地 owner_token 的本人可见）。
  */
-export function IssueChrome({ slug, domain, title }: Props) {
+export function IssueChrome({ slug, domain, title, createdAt }: Props) {
   const [copied, setCopied] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [authorOpen, setAuthorOpen] = useState(false);
@@ -48,6 +50,17 @@ export function IssueChrome({ slug, domain, title }: Props) {
     setIsOwner(isOwnerOf(slug));
     setLetterId(findByIssueSlug(slug)?.letterId);
   }, [slug]);
+
+  // 6.3 · 重读时刻：这封信写于多少天前。Date.now() 只在客户端取值，
+  // 但它只在 isOwner === true（post-mount effect 才置位）时渲染 → SSR 期永不渲染，无 hydration 失配。
+  const reReadDays = createdAt
+    ? Math.floor((Date.now() - new Date(createdAt).getTime()) / 86400000)
+    : null;
+
+  // 6.1 · 域交叉「换个命题」：刚写完一封信的人，在对面域有全新的内容可写。
+  const crossDomain = domain === "major" ? "mbti" : "major";
+  const crossDomainLabel =
+    domain === "major" ? "换个命题 · 性格画像 →" : "换个命题 · 专业方向 →";
 
   const handleCopyLink = useCallback(async () => {
     try {
@@ -81,6 +94,13 @@ export function IssueChrome({ slug, domain, title }: Props) {
         >
           {/* 左：导航 + 作者入口 */}
           <div className="flex items-center flex-wrap gap-x-4 sm:gap-x-5 gap-y-1">
+            {/* 6.3 · 重读时刻：owner 且报告 >30 天时，一行非交互弱文本。
+                isOwner === true 在 post-mount effect 才置位 → SSR 期不渲染，Date.now() 不引入 hydration 失配。 */}
+            {isOwner === true && reReadDays !== null && reReadDays > 30 && (
+              <span className="text-ink-muted normal-case tracking-normal">
+                这封信写于 {reReadDays} 天前
+              </span>
+            )}
             <Link
               href="/"
               className="hover:text-accent transition-colors"
@@ -105,16 +125,25 @@ export function IssueChrome({ slug, domain, title }: Props) {
                 ← 回看
               </Link>
             )}
-            {/* 「再写一封」仅 owner 可见；判定未完成(null)也不渲染，避免接收者侧闪现。
+            {/* 6.1 · 域交叉「换个命题」仅 owner 可见；判定未完成(null)也不渲染，避免接收者侧闪现。
+                刚写完一域 → 引向对面域（major↔mbti）这唯一即时可兑现的「第二次访问」。
+                保持弱文本风（text-ink-soft，不抢 accent 预算）。
                 /letters/new 是有副作用的 GET（render 时建 test_sessions 行）→ prefetch={false} 防孤儿信。 */}
             {isOwner === true && (
               <Link
-                href="/letters/new"
+                href={`/letters/new?domain=${crossDomain}`}
                 prefetch={false}
+                onClick={() =>
+                  trackEvent("new_letter_from_issue", {
+                    slug,
+                    domain,
+                    cross_domain: true,
+                  })
+                }
                 className="text-ink-soft hover:text-accent transition-colors"
-                aria-label="开始一封新的信"
+                aria-label="换个命题，写另一域的信"
               >
-                再写一封 →
+                {crossDomainLabel}
               </Link>
             )}
             <button
