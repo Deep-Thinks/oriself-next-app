@@ -10,13 +10,18 @@ import { createLetter } from '@/lib/api';
 export const dynamic = 'force-dynamic';
 
 export default async function NewLetterPage(
-  { searchParams }: { searchParams: Promise<{ domain?: string }> }
+  { searchParams }: { searchParams: Promise<{ domain?: string; from?: string }> }
 ) {
-  const { domain } = await searchParams;
+  const { domain, from } = await searchParams;
   const safeDomain = domain === 'major' ? 'major' : 'mbti'; // 白名单兜底
   try {
     const letter = await createLetter(undefined, safeDomain);
-    redirect(`/letters/${letter.letter_id}`);
+    // ?from= 来源透传 · slug 白名单防注入 / 超长值；不合规直接丢弃
+    const qs =
+      from && /^[a-z0-9-]{1,64}$/i.test(from)
+        ? `?from=${encodeURIComponent(from)}`
+        : '';
+    redirect(`/letters/${letter.letter_id}${qs}`);
   } catch (err) {
     // If backend is unreachable, fall back to landing with an error state
     // Actual redirect keeps working via throw.

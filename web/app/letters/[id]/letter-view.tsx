@@ -119,11 +119,27 @@ export function LetterView({
     } catch {
       // storage 不可用时仍发一次，宁可重复也不漏（漏斗顶端不能丢）
     }
+    // ?from= 来源 slug（受 new/page.tsx 白名单约束）；缺省时 null
+    const refSlug = new URLSearchParams(window.location.search).get("from");
     trackEvent(
       "letter_created",
-      { letter_id: letterId, domain: initialState.domain },
+      { letter_id: letterId, domain: initialState.domain, ref_slug: refSlug },
       letterId,
     );
+    // 埋点已落 → 抹掉 ?from=，避免回看/分享时泄露来源。
+    // 用 replaceState 而非 router.replace：letter 页 force-dynamic，
+    // router.replace 会在接收者最脆弱的首帧触发 state+transcript 全量 RSC 重取；
+    // replaceState 只是客户端改 URL，零网络。仅删 from，保留其余参数。
+    if (refSlug !== null) {
+      const params = new URLSearchParams(window.location.search);
+      params.delete("from");
+      const remaining = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + (remaining ? `?${remaining}` : ""),
+      );
+    }
   }, [letterId, initialTurns.length]);
 
   // ============================================================
@@ -663,6 +679,8 @@ function CompletedFooter({ issueSlug }: { issueSlug: string | null }) {
         ) : (
           <Link
             href="/letters/new"
+            // /letters/new 是带副作用的 GET（渲染即 createLetter 落一行 test_sessions）→ prefetch={false} 防孤儿会话
+            prefetch={false}
             className="fraunces-body italic text-[16px] text-accent hover:text-accent-soft border-b border-accent/40 hover:border-accent transition-colors pb-[2px]"
           >
             再写一封 <span className="font-mono not-italic">→</span>
