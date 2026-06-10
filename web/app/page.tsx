@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { DomainToggle } from "@/components/home/domain-toggle";
 import { RecentLetters } from "@/components/home/recent-letters";
 import { APP_VERSION, getServerVersion } from "@/lib/version";
@@ -59,6 +60,17 @@ export default async function LandingPage() {
             }`}
           </span>
           <div className="flex items-baseline gap-[14px]">
+            {/* 5.1 · 画廊弱内链（Next Link，内部无 ↗）；样式与外链同级，不抢 accent 预算 */}
+            <Link
+              href="/issues"
+              className="hover:text-accent transition-colors"
+              aria-label="公开命题画廊"
+            >
+              公开命题
+            </Link>
+            <span aria-hidden className="opacity-40">
+              ·
+            </span>
             <a
               href="https://github.com/Deep-Thinks/oriself-next"
               className="hover:text-accent transition-colors"

@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { clearClaim, getOwnerToken } from "@/lib/history";
 import { ApiError, getIssue, publishIssue } from "@/lib/api";
+import { trackEvent } from "@/lib/analytics";
 
 /**
  * 「公开到画廊」开关 · §5。
@@ -40,6 +42,8 @@ export function PublishToggle({ slug }: { slug: string }) {
     try {
       const m = await publishIssue(slug, !isPublic, token);
       setIsPublic(m.is_public);
+      // 5.2 · 仅在成功 toggle 时埋点；mount 拉取 / 403 自清路径都不触发
+      trackEvent("issue_published", { slug, is_public: m.is_public });
     } catch (err) {
       // 403 = 凭证已失效（认领链接的 token 被轮换 / DB 重置）→ 自清，收起入口。
       if (err instanceof ApiError && err.status === 403) {
@@ -73,11 +77,22 @@ export function PublishToggle({ slug }: { slug: string }) {
         title={
           isPublic
             ? "已公开到画廊（可被搜索到），点此转回私有"
-            : "公开这条命题到画廊（将被搜索引擎收录）"
+            : "收进公开画廊，与其他公开的命题并列；会被搜索引擎收录"
         }
       >
         {isPublic ? "已公开 · 转私有" : "公开到画廊"}
       </button>
+      {/* 5.2 ·「去哪了」弱链 · 由 isPublic STATE 驱动（含 mount 时 getIssue 拉回的已公开态，
+          故 owner 日后再访问仍可见）；isPublic === false 时消失。弱文本，不抢 accent 预算。 */}
+      {isPublic && (
+        <Link
+          href="/issues"
+          className="text-ink-muted hover:text-accent transition-colors"
+          aria-label="去公开命题画廊看看"
+        >
+          已收录 · 看画廊 →
+        </Link>
+      )}
       {/* 认领链接 · 仅本人可见（跨浏览器 / 换设备管理 publish 态，微信场景）。
           链接含 #claim=<token>，fragment 不发服务器；持有者仅能改公开态，看不到对话。 */}
       <button

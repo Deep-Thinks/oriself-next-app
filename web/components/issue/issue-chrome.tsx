@@ -88,6 +88,14 @@ export function IssueChrome({ slug, domain, title }: Props) {
             >
               ← 首页
             </Link>
+            {/* 5.1 · 画廊弱内链 · 受众中性导航（owner 与接收者都渲染，故置于 isOwner 分支之外）；继承 nav muted 风格，零 accent */}
+            <Link
+              href="/issues"
+              className="hover:text-accent transition-colors"
+              aria-label="公开命题画廊"
+            >
+              画廊
+            </Link>
             {letterId && (
               <Link
                 href={`/letters/${letterId}`}
