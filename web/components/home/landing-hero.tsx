@@ -234,10 +234,7 @@ export function LandingHero() {
 
   return (
     <section
-      className={`lh-hero relative z-10 min-h-screen w-full flex flex-col items-center justify-start px-6 ${
-        lifted ? "lh-lifted" : ""
-      }`}
-      style={{ paddingBottom: "3vh" }}
+      className="lh-hero relative z-10 flex-1 w-full flex flex-col items-center px-6"
     >
       <div className="text-center">
         <h1 className="text-ink animate-settle" style={WORDMARK_STYLE}>
@@ -262,14 +259,14 @@ export function LandingHero() {
         <div className="lh-below-inner">
           <p
             className={`${cls(0)} font-mono text-[10.5px] tracking-[0.18em] text-ink-muted text-center`}
-            style={{ ...revealStyle(0), marginTop: 26 }}
+            style={{ ...revealStyle(0), marginTop: 18 }}
           >
             用对话代替选择题
           </p>
 
           <section
             className={cls(1)}
-            style={{ ...revealStyle(1), width: "100%", maxWidth: 440, marginTop: 26 }}
+            style={{ ...revealStyle(1), width: "100%", maxWidth: 440, marginTop: 18 }}
           >
             <p className="fraunces-body-soft italic text-[15px] text-ink-soft text-center mb-4">
               接下来这十分钟，大概会这样展开 ——
@@ -297,7 +294,7 @@ export function LandingHero() {
 
           <div
             className={`${cls(2)} flex flex-col items-center gap-[14px]`}
-            style={{ ...revealStyle(2), marginTop: 26 }}
+            style={{ ...revealStyle(2), marginTop: 18 }}
           >
             <div className="flex items-center gap-3">
               <button
@@ -342,7 +339,7 @@ export function LandingHero() {
 
           <div
             className={`${cls(3)} w-full flex flex-col items-center`}
-            style={{ ...revealStyle(3), marginTop: 26 }}
+            style={{ ...revealStyle(3), marginTop: 18 }}
             onMouseEnter={() => (pausedRef.current = true)}
             onMouseLeave={() => (pausedRef.current = false)}
           >

@@ -11,18 +11,17 @@ import {
 } from "@/lib/history";
 
 /**
- * 首页 · 最近在你浏览器里写过的信 + 信匣导出/导入。
+ * 首页 · 信匣（最近写过的信 + 导出/导入），默认折叠成一行 tab。
  *
  * - 纯 localStorage，没有网络。
- * - 有信件：列表 + 导出 + 导入；空信匣：只留一枚极低调的「导入信匣」（换设备恢复用）。
- * - 每条一行：左侧标题 / 元信息，右侧入口链接，最右小 × 可删（本地删除，不影响后端数据）。
+ * - 折叠态只占一行（「历史记录 · N 封 ▾」），保证首屏 16:9 放得下；点开才展列表。
+ * - 空信匣：只留一枚极低调的「导入信匣」（换设备恢复用）。
  */
 export function RecentLetters() {
   const [entries, setEntries] = useState<LocalLetterEntry[]>([]);
   const [mounted, setMounted] = useState(false);
-  // 6.2 · 导出信匣的「已抄下」反馈（同 issue-chrome 的 copied 模式，1.6s 后复位）
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  // 导入信匣：粘贴框开合 + 文本 + 反馈
   const [importing, setImporting] = useState(false);
   const [importText, setImportText] = useState("");
   const [importMsg, setImportMsg] = useState<string | null>(null);
@@ -62,79 +61,138 @@ export function RecentLetters() {
   if (!mounted) return null;
 
   const hasEntries = entries.length > 0;
+  const tabClass =
+    "font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0";
 
-  return (
-    <section
-      aria-label="你的信匣"
-      className="w-full max-w-[620px] mx-auto px-6 sm:px-8 pb-20"
-    >
-      {hasEntries && (
-        <>
-          <p className="font-mono text-[10px] tracking-widest uppercase text-ink-muted mb-6">
-            最近在你的浏览器里 · 本地保存 · 未上传
-          </p>
-          <ul className="space-y-5">
-            {entries.map((e) => (
-              <LetterRow key={e.letterId} entry={e} onRemove={handleRemove} />
-            ))}
-          </ul>
-        </>
-      )}
-
-      {/* 信匣导出/导入 · 弱 mono 链接。导出抄下清单 + JSON 凭证；导入把凭证粘回来合并（换设备恢复）。 */}
-      <div className="mt-6 flex items-center gap-5 flex-wrap">
-        {hasEntries && (
-          <button
-            type="button"
-            onClick={handleExport}
-            className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0"
-            aria-label="导出信匣 · 抄下清单与凭证"
-            title="抄下你信匣的清单与凭证（换设备时粘回来即可找回）"
-          >
-            {copied ? "已抄下 ✓" : "导出信匣 ⎘"}
-          </button>
-        )}
+  // 空信匣：只留一枚导入入口（换设备恢复）。
+  if (!hasEntries) {
+    return (
+      <section
+        aria-label="信匣"
+        className="w-full max-w-[620px] mx-auto px-6 sm:px-8 pb-3 text-center"
+      >
         <button
           type="button"
           onClick={() => {
             setImporting((v) => !v);
             setImportMsg(null);
           }}
-          className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0"
+          className={tabClass}
           aria-label="导入信匣 · 粘贴备份凭证恢复"
-          title="把之前导出的整段文本粘回来，合并进本地信匣"
         >
           导入信匣 ⎗
         </button>
+        {importing && (
+          <ImportPanel
+            value={importText}
+            onChange={setImportText}
+            onImport={handleImport}
+            msg={importMsg}
+          />
+        )}
+      </section>
+    );
+  }
+
+  return (
+    <section
+      aria-label="信匣"
+      className="w-full max-w-[620px] mx-auto px-6 sm:px-8 pb-3"
+    >
+      {/* 折叠 tab：一行，保证折叠态首屏放得下 */}
+      <div className="text-center">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={tabClass}
+          aria-expanded={open}
+          aria-label={open ? "收起历史记录" : "展开历史记录"}
+        >
+          历史记录 · {entries.length} 封 {open ? "▴" : "▾"}
+        </button>
       </div>
 
-      {importing && (
-        <div className="mt-4">
-          <textarea
-            value={importText}
-            onChange={(ev) => setImportText(ev.target.value)}
-            rows={4}
-            placeholder="把之前「导出信匣」抄下的整段文本粘贴到这里"
-            className="no-scrollbar w-full bg-paper-warm border border-rule rounded-sm p-3 font-mono text-[12px] leading-relaxed text-ink-soft placeholder:text-ink-muted resize-none focus:outline-none focus:border-accent"
-          />
-          <div className="mt-2 flex items-center gap-4">
+      {open && (
+        <div className="mt-6">
+          <ul className="space-y-5">
+            {entries.map((e) => (
+              <LetterRow key={e.letterId} entry={e} onRemove={handleRemove} />
+            ))}
+          </ul>
+
+          <div className="mt-6 flex items-center gap-5 flex-wrap">
             <button
               type="button"
-              onClick={handleImport}
-              disabled={importText.trim().length === 0}
-              className="fraunces-body-soft italic text-[14px] text-accent hover:text-accent-soft border-b border-accent disabled:opacity-40 disabled:cursor-default transition-colors"
+              onClick={handleExport}
+              className={tabClass}
+              aria-label="导出信匣 · 抄下清单与凭证"
+              title="抄下你信匣的清单与凭证（换设备时粘回来即可找回）"
             >
-              导入 →
+              {copied ? "已抄下 ✓" : "导出信匣 ⎘"}
             </button>
-            {importMsg && (
-              <span className="font-mono text-[10px] tracking-wide text-ink-muted">
-                {importMsg}
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setImporting((v) => !v);
+                setImportMsg(null);
+              }}
+              className={tabClass}
+              aria-label="导入信匣 · 粘贴备份凭证恢复"
+            >
+              导入信匣 ⎗
+            </button>
           </div>
+
+          {importing && (
+            <ImportPanel
+              value={importText}
+              onChange={setImportText}
+              onImport={handleImport}
+              msg={importMsg}
+            />
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+function ImportPanel({
+  value,
+  onChange,
+  onImport,
+  msg,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onImport: () => void;
+  msg: string | null;
+}) {
+  return (
+    <div className="mt-4 text-left">
+      <textarea
+        value={value}
+        onChange={(ev) => onChange(ev.target.value)}
+        rows={4}
+        placeholder="把之前「导出信匣」抄下的整段文本粘贴到这里"
+        className="no-scrollbar w-full bg-paper-warm border border-rule rounded-sm p-3 font-mono text-[12px] leading-relaxed text-ink-soft placeholder:text-ink-muted resize-none focus:outline-none focus:border-accent"
+      />
+      <div className="mt-2 flex items-center gap-4">
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={value.trim().length === 0}
+          className="fraunces-body-soft italic text-[14px] text-accent hover:text-accent-soft border-b border-accent disabled:opacity-40 disabled:cursor-default transition-colors"
+        >
+          导入 →
+        </button>
+        {msg && (
+          <span className="font-mono text-[10px] tracking-wide text-ink-muted">
+            {msg}
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 

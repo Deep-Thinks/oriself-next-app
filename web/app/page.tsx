@@ -12,15 +12,15 @@ import { APP_VERSION, getServerVersion } from "@/lib/version";
 export default async function LandingPage() {
   const serverVersion = await getServerVersion();
   return (
-    <main className="relative z-10 flex flex-col">
-      {/* 首屏：单栏大标上移 + 三幕预告 + 范例轮播 */}
+    <main className="relative z-10 min-h-screen flex flex-col">
+      {/* 首屏：hero flex-1 占满一屏；折叠态历史 tab + 页脚落底 = 16:9 一屏 */}
       <LandingHero />
 
       {/* Recent letters · local-only, shown only if there are entries */}
       <RecentLetters />
 
       {/* Colophon — barely visible, edge of the page */}
-      <footer className="px-6 sm:px-8 pb-16 sm:pb-8 pt-16">
+      <footer className="px-6 sm:px-8 pb-3 pt-3">
         <div className="max-w-[1200px] mx-auto flex flex-wrap justify-between items-baseline gap-y-3 gap-x-6 font-mono text-[10px] tracking-widest uppercase text-ink-muted">
           <span>
             {`OriSelf · Issue 04 · web v${APP_VERSION}${

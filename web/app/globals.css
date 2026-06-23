@@ -149,8 +149,8 @@ body::after {
    ═══════════════════════════════════════════════════════════════════ */
 
 /* 上移：初始大留白让大标居中成海报；写完刊头后顶部留白收紧，大标整体上移贴顶 */
-.lh-hero { padding-top: 34vh; transition: padding-top 1s var(--ease); }
-.lh-hero.lh-lifted { padding-top: clamp(20px, 4vh, 48px); }
+/* hero 占满 main 的弹性区并居中：下方展开时重新居中 = 大标上移；余量化为均衡留白，杜绝底部死带 */
+.lh-hero { justify-content: center; padding: 0; }
 
 /* 下方内容：grid-rows 0fr→1fr 展开（推动大标上移） */
 .lh-below { display: grid; grid-template-rows: 0fr; opacity: 0; transition: grid-template-rows 1s var(--ease), opacity .85s var(--ease); }
@@ -168,7 +168,7 @@ body::after {
 .lh-num { flex: none; width: 22px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); padding-top: 2px; }
 
 /* 范例轮播台 */
-.lh-stage { position: relative; width: 100%; max-width: 432px; min-height: 248px; display: flex; align-items: center; }
+.lh-stage { position: relative; width: 100%; max-width: 432px; min-height: 224px; display: flex; align-items: center; }
 .lh-card { width: 100%; transition: opacity 0.32s var(--ease); text-align: left; }
 .lh-k { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin: 0 0 13px; }
 .lh-ct { font-variation-settings: "opsz" 40, "SOFT" 100, "WONK" 1; font-size: 22px; line-height: 1.3; color: var(--ink); margin: 0 0 9px; }
@@ -189,6 +189,7 @@ body::after {
 
 /* 手机端：卡片不倾斜 */
 @media (max-width: 620px) {
-  .lh-hero, .lh-hero.lh-lifted { padding-top: 7vh; }
+  /* 手机端内容常高于一屏：顶对齐避免居中裁顶 */
+  .lh-hero { justify-content: flex-start; padding-top: 6vh; }
   .lh-card-letter, .lh-card-quote, .lh-card-indexed { transform: none; }
 }
