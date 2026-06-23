@@ -667,7 +667,7 @@ function CompletedFooter({
 }) {
   // 6.1 · 域交叉「换个命题」：刚写完一封信 → 对面域有全新内容可写（major↔mbti）。
   const crossDomain = domain === "major" ? "mbti" : "major";
-  const crossDomainLabel = domain === "major" ? "换个命题 · 性格画像" : "换个命题 · 专业方向";
+  const crossDomainLabel = domain === "major" ? "再写一封 · 性格画像" : "再写一封 · 专业方向";
 
   return (
     <footer
@@ -697,7 +697,7 @@ function CompletedFooter({
                 })
               }
               className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors whitespace-nowrap"
-              aria-label="换个命题，写另一域的信"
+              aria-label="再写一封，写另一域的信"
             >
               {crossDomainLabel} →
             </Link>

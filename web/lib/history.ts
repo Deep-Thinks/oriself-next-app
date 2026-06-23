@@ -105,6 +105,56 @@ export function exportLetters(): string {
 }
 
 /**
+ * 信匣导入 · 从 exportLetters() 的文本里抽出末尾 JSON 凭证，按 letterId 合并进本地。
+ * - 合并而非覆盖：同 letterId 取较新的 updatedAt 为主，但 ownerToken 谁有取谁
+ *   （publish 凭证是 publish 权的唯一事实源，导入永远只增不减）。
+ * - 解析失败抛错（让 UI 给出明确反馈）。返回本次新增/更新与合并后总数。
+ */
+export function importLetters(text: string): { imported: number; total: number } {
+  if (!isBrowser()) return { imported: 0, total: 0 };
+
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start < 0 || end <= start) {
+    throw new Error("没找到可导入的凭证（请粘贴完整的「导出信匣」文本）");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    throw new Error("凭证解析失败（请确认粘贴的是完整导出文本）");
+  }
+  if (!Array.isArray(parsed)) throw new Error("凭证格式不对");
+
+  const incoming = parsed.filter(
+    (e): e is LocalLetterEntry =>
+      e && typeof e.letterId === "string" && typeof e.updatedAt === "number",
+  );
+  if (incoming.length === 0) throw new Error("凭证里没有可导入的信件");
+
+  const byId = new Map(safeRead().map((e) => [e.letterId, e]));
+  let imported = 0;
+  for (const inc of incoming) {
+    const prev = byId.get(inc.letterId);
+    if (!prev) {
+      byId.set(inc.letterId, inc);
+    } else {
+      const newer = inc.updatedAt > prev.updatedAt ? inc : prev;
+      byId.set(inc.letterId, {
+        ...prev,
+        ...newer,
+        ownerToken: prev.ownerToken ?? inc.ownerToken,
+      });
+    }
+    imported += 1;
+  }
+
+  const merged = [...byId.values()];
+  safeWrite(merged);
+  return { imported, total: merged.length };
+}
+
+/**
  * Upsert 一条记录。
  * - 新记录：补齐默认字段；createdAt 默认当前时间戳。
  * - 已存在：patch 字段覆盖；createdAt 永不重写；updatedAt 自动刷新。

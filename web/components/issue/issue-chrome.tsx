@@ -60,7 +60,7 @@ export function IssueChrome({ slug, domain, title, createdAt }: Props) {
   // 6.1 · 域交叉「换个命题」：刚写完一封信的人，在对面域有全新的内容可写。
   const crossDomain = domain === "major" ? "mbti" : "major";
   const crossDomainLabel =
-    domain === "major" ? "换个命题 · 性格画像 →" : "换个命题 · 专业方向 →";
+    domain === "major" ? "再写一封 · 性格画像 →" : "再写一封 · 专业方向 →";
 
   const handleCopyLink = useCallback(async () => {
     try {
@@ -112,7 +112,7 @@ export function IssueChrome({ slug, domain, title, createdAt }: Props) {
             <Link
               href="/issues"
               className="hover:text-accent transition-colors"
-              aria-label="公开命题画廊"
+              aria-label="公开画廊"
             >
               画廊
             </Link>
@@ -141,7 +141,7 @@ export function IssueChrome({ slug, domain, title, createdAt }: Props) {
                   })
                 }
                 className="text-ink-soft hover:text-accent transition-colors"
-                aria-label="换个命题，写另一域的信"
+                aria-label="再写一封，写另一域的信"
               >
                 {crossDomainLabel}
               </Link>

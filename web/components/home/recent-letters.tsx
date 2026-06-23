@@ -5,15 +5,16 @@ import { useCallback, useEffect, useState } from "react";
 import {
   exportLetters,
   getAllLetters,
+  importLetters,
   removeLetter,
   type LocalLetterEntry,
 } from "@/lib/history";
 
 /**
- * 首页 · 最近在你浏览器里写过的信。
+ * 首页 · 最近在你浏览器里写过的信 + 信匣导出/导入。
  *
  * - 纯 localStorage，没有网络。
- * - 空态直接不渲染，保留作品集极简感。
+ * - 有信件：列表 + 导出 + 导入；空信匣：只留一枚极低调的「导入信匣」（换设备恢复用）。
  * - 每条一行：左侧标题 / 元信息，右侧入口链接，最右小 × 可删（本地删除，不影响后端数据）。
  */
 export function RecentLetters() {
@@ -21,6 +22,10 @@ export function RecentLetters() {
   const [mounted, setMounted] = useState(false);
   // 6.2 · 导出信匣的「已抄下」反馈（同 issue-chrome 的 copied 模式，1.6s 后复位）
   const [copied, setCopied] = useState(false);
+  // 导入信匣：粘贴框开合 + 文本 + 反馈
+  const [importing, setImporting] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   useEffect(() => {
     setEntries(getAllLetters());
@@ -42,33 +47,93 @@ export function RecentLetters() {
     }
   }, []);
 
-  // SSR 期间 / 空历史 · 不渲染整块
-  if (!mounted || entries.length === 0) return null;
+  const handleImport = useCallback(() => {
+    try {
+      const { imported, total } = importLetters(importText);
+      setEntries(getAllLetters());
+      setImportText("");
+      setImportMsg(`已导入 ${imported} 封 · 信匣共 ${total} 封 ✓`);
+    } catch (e) {
+      setImportMsg(e instanceof Error ? e.message : "导入失败");
+    }
+  }, [importText]);
+
+  // SSR 期间不渲染（localStorage 仅客户端）
+  if (!mounted) return null;
+
+  const hasEntries = entries.length > 0;
 
   return (
     <section
-      aria-label="你最近的信"
+      aria-label="你的信匣"
       className="w-full max-w-[620px] mx-auto px-6 sm:px-8 pb-20"
     >
-      <p className="font-mono text-[10px] tracking-widest uppercase text-ink-muted mb-6">
-        最近在你的浏览器里 · 本地保存 · 未上传
-      </p>
-      <ul className="space-y-5">
-        {entries.map((e) => (
-          <LetterRow key={e.letterId} entry={e} onRemove={handleRemove} />
-        ))}
-      </ul>
-      {/* 6.2 · 信匣导出 · 弱 mono 链接：抄下人可读清单 + JSON 凭证（换设备手动找回 publish 权的备份）。
-          仅做导出，不做导入/云/二维码（跨设备恢复靠认领链接，此处只是离线备份）。 */}
-      <button
-        type="button"
-        onClick={handleExport}
-        className="mt-6 font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0"
-        aria-label="导出信匣 · 抄下清单与凭证"
-        title="抄下你信匣的清单与凭证（换设备时粘贴回来即可找回）"
-      >
-        {copied ? "已抄下 ✓" : "导出信匣 ⎘"}
-      </button>
+      {hasEntries && (
+        <>
+          <p className="font-mono text-[10px] tracking-widest uppercase text-ink-muted mb-6">
+            最近在你的浏览器里 · 本地保存 · 未上传
+          </p>
+          <ul className="space-y-5">
+            {entries.map((e) => (
+              <LetterRow key={e.letterId} entry={e} onRemove={handleRemove} />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {/* 信匣导出/导入 · 弱 mono 链接。导出抄下清单 + JSON 凭证；导入把凭证粘回来合并（换设备恢复）。 */}
+      <div className="mt-6 flex items-center gap-5 flex-wrap">
+        {hasEntries && (
+          <button
+            type="button"
+            onClick={handleExport}
+            className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0"
+            aria-label="导出信匣 · 抄下清单与凭证"
+            title="抄下你信匣的清单与凭证（换设备时粘回来即可找回）"
+          >
+            {copied ? "已抄下 ✓" : "导出信匣 ⎘"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setImporting((v) => !v);
+            setImportMsg(null);
+          }}
+          className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors bg-transparent border-0 cursor-pointer p-0"
+          aria-label="导入信匣 · 粘贴备份凭证恢复"
+          title="把之前导出的整段文本粘回来，合并进本地信匣"
+        >
+          导入信匣 ⎗
+        </button>
+      </div>
+
+      {importing && (
+        <div className="mt-4">
+          <textarea
+            value={importText}
+            onChange={(ev) => setImportText(ev.target.value)}
+            rows={4}
+            placeholder="把之前「导出信匣」抄下的整段文本粘贴到这里"
+            className="no-scrollbar w-full bg-paper-warm border border-rule rounded-sm p-3 font-mono text-[12px] leading-relaxed text-ink-soft placeholder:text-ink-muted resize-none focus:outline-none focus:border-accent"
+          />
+          <div className="mt-2 flex items-center gap-4">
+            <button
+              type="button"
+              onClick={handleImport}
+              disabled={importText.trim().length === 0}
+              className="fraunces-body-soft italic text-[14px] text-accent hover:text-accent-soft border-b border-accent disabled:opacity-40 disabled:cursor-default transition-colors"
+            >
+              导入 →
+            </button>
+            {importMsg && (
+              <span className="font-mono text-[10px] tracking-wide text-ink-muted">
+                {importMsg}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

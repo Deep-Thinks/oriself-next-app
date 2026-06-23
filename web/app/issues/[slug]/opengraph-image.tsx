@@ -4,7 +4,7 @@ import { loadNotoSerifSCSubset } from "@/lib/og-font";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-export const alt = "OriSelf 命题";
+export const alt = "OriSelf 人格画像";
 // node runtime (默认) —— 需要它来解析 process.env.API_INTERNAL_URL 并发出出网请求取字体。
 
 export default async function Image({

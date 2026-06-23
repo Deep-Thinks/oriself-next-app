@@ -39,7 +39,7 @@ const notoSerifSC = Noto_Serif_SC({
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: "OriSelf · 对话式人格画像", template: "%s · OriSelf" },
-  description: "用一场对话，写下只属于你的人格命题。中文 · 2026。",
+  description: "用一场对话，写下只属于你的人格画像。中文 · 2026。",
   alternates: { canonical: "/" },
   // Favicon 走 app/icon.svg（Next 15 自动探测），不要在这里写死 icons。
   // /favicon.ico 绝对路径 —— 之前 public/ 并不存在导致 404。
@@ -49,12 +49,12 @@ export const metadata: Metadata = {
     locale: "zh_CN",
     url: SITE_URL,
     title: "OriSelf · 对话式人格画像",
-    description: "用一场对话，写下只属于你的人格命题。",
+    description: "用一场对话，写下只属于你的人格画像。",
   },
   twitter: {
     card: "summary_large_image",
     title: "OriSelf · 对话式人格画像",
-    description: "用一场对话，写下只属于你的人格命题。",
+    description: "用一场对话，写下只属于你的人格画像。",
   },
 };
 

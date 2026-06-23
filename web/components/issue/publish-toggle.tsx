@@ -77,7 +77,7 @@ export function PublishToggle({ slug }: { slug: string }) {
         title={
           isPublic
             ? "已公开到画廊（可被搜索到），点此转回私有"
-            : "收进公开画廊，与其他公开的命题并列；会被搜索引擎收录"
+            : "收进公开画廊，与其他公开的画像并列；会被搜索引擎收录"
         }
       >
         {isPublic ? "已公开 · 转私有" : "公开到画廊"}
@@ -88,7 +88,7 @@ export function PublishToggle({ slug }: { slug: string }) {
         <Link
           href="/issues"
           className="text-ink-muted hover:text-accent transition-colors"
-          aria-label="去公开命题画廊看看"
+          aria-label="去公开画廊看看"
         >
           已收录 · 看画廊 →
         </Link>
