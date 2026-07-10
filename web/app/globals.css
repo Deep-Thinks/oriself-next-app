@@ -501,25 +501,23 @@ body::after {
   background: rgba(249, 244, 232, 0.6);
   border: 1px solid rgba(26, 21, 18, 0.08);
 }
-/* 入场：卡片依次落位（reduced-motion 直出终态） */
+/* 入场：卡面依次落位。动画放在内层 .ad-in——外壳 .ad-card 的 transform
+   属于交互态（悬停/抽出），若被 animation fill 长期占用会把抽卡钉死
+   （v3.3.0 线上事故：fill-mode both 覆盖 .ad-pulled，交互全哑）。
+   backwards 只管延迟期的隐藏，动画结束即交还 cascade。 */
 @media (prefers-reduced-motion: no-preference) {
-  .ad-drawer:not(.ad-settled) .ad-card {
+  .ad-drawer:not(.ad-settled) .ad-in {
     transform: translateY(30px);
     opacity: 0;
   }
-  .ad-drawer.ad-settled .ad-card {
-    animation: ad-settle 0.6s var(--ease) both;
+  .ad-drawer.ad-settled .ad-in {
+    animation: ad-settle 0.6s var(--ease) backwards;
     animation-delay: calc(var(--i) * 26ms);
   }
-  .ad-drawer.ad-settled .ad-blank { animation-name: ad-settle-blank; }
 }
 @keyframes ad-settle {
   from { transform: translateY(30px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
-}
-@keyframes ad-settle-blank {
-  from { transform: translateY(54px); opacity: 0; }
-  to { transform: translateY(24px); opacity: 1; }
 }
 .ad-hint {
   margin-top: 16px;
