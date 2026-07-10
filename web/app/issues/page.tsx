@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { listPublicIssues } from "@/lib/api";
+import { JsonLd } from "@/components/seo/json-ld";
+import { SITE_URL } from "@/lib/site";
 
 /**
  * 公开画廊 · /issues
@@ -22,6 +24,23 @@ export default async function GalleryPage() {
   const issues = await listPublicIssues();
   return (
     <main className="relative z-10 min-h-screen flex flex-col items-center px-6 py-24">
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@type": "CollectionPage",
+          "@id": `${SITE_URL}/issues#collection`,
+          url: `${SITE_URL}/issues`,
+          name: "公开画廊 · OriSelf",
+          description:
+            "OriSelf 上由作者公开的人格画像选集 —— 对话式人格画像、自我认知、MBTI。",
+          inLanguage: "zh-CN",
+          hasPart: issues.slice(0, 24).map((i) => ({
+            "@type": "Article",
+            headline: i.title,
+            url: `${SITE_URL}/issues/${i.slug}`,
+          })),
+        }}
+      />
       <h1
         className="text-ink text-center fraunces-body italic"
         style={{ fontSize: "clamp(40px, 7vw, 72px)", letterSpacing: "-0.03em" }}

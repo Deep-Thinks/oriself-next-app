@@ -193,3 +193,508 @@ body::after {
   .lh-hero { justify-content: flex-start; padding-top: 6vh; }
   .lh-card-letter, .lh-card-quote, .lh-card-indexed { transform: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   目录页 · Contents（首页第二屏 / components/home/journal-index.tsx）
+   印刷目录的点线引导：flex 撑满中缝，dotted rule 对齐条目基线。
+   ═══════════════════════════════════════════════════════════════════ */
+.toc-leader {
+  flex: 1 1 auto;
+  min-width: 28px;
+  border-bottom: 1px dotted var(--rule-strong);
+  transform: translateY(-4px);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   档案抽屉 · Archive drawer（components/home/archive-drawer.tsx）
+   十六型索引卡：横向拨动、单张抽出。物件感全靠影子与卡纸层次，
+   颜色只用既有 token（卡=paper-warm，待刊=paper-deep，章/红线=accent）。
+   ═══════════════════════════════════════════════════════════════════ */
+.ad-row {
+  display: flex;
+  align-items: flex-end;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 132px clamp(18px, 4vw, 48px) 0;
+  scrollbar-width: none;
+  cursor: grab;
+  user-select: none; /* 拖拽拨卡时不选中文字 */
+  -webkit-user-select: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ad-row::-webkit-scrollbar { display: none; }
+.ad-row.ad-dragging { cursor: grabbing; }
+
+.ad-card {
+  position: relative;
+  flex: 0 0 auto;
+  width: 236px;
+  height: 312px;
+  transition: transform 0.38s cubic-bezier(0.25, 0.9, 0.3, 1.15);
+}
+.ad-in {
+  display: block;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  background: var(--paper-warm);
+  border-radius: 3px 3px 0 0;
+  border-left: 1px solid rgba(26, 21, 18, 0.08);
+  box-shadow: -6px 0 14px -8px rgba(26, 21, 18, 0.4),
+    0 16px 30px -16px rgba(26, 21, 18, 0.35);
+  overflow: hidden;
+  padding: 14px 16px 38px;
+  text-align: left;
+}
+/* 卡面横线 + 顶部红线 */
+.ad-in::before {
+  content: "";
+  position: absolute;
+  inset: 62px 0 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0 25px,
+    rgba(26, 21, 18, 0.09) 25px 26px
+  );
+}
+.ad-in::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 37px;
+  height: 2px;
+  background: rgba(122, 31, 26, 0.55);
+  pointer-events: none;
+}
+/* 卡片叠放：已刊卡露肩多、待刊卡只露脊 */
+.ad-feat { margin-right: -54px; z-index: auto; }
+.ad-blank { margin-right: -182px; transform: translateY(24px); }
+.ad-card:last-child { margin-right: 0; }
+.ad-blank .ad-in { background: var(--paper-deep); }
+.ad-blank .ad-code {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  letter-spacing: 0.34em;
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  color: var(--ink-muted);
+}
+.ad-code {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  color: var(--ink-muted);
+}
+.ad-type {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 13px;
+  font-family: var(--font-mono);
+  font-size: 27px;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.ad-alias {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+}
+.ad-line {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 13px;
+  font-style: italic;
+  font-variation-settings: "opsz" 22, "SOFT" 60, "WONK" 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink);
+  max-width: 15em;
+}
+.ad-quote {
+  position: relative;
+  z-index: 1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 11px;
+  font-variation-settings: "opsz" 15, "SOFT" 40, "WONK" 0;
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--ink-soft);
+  text-align: justify;
+}
+.ad-stamp {
+  position: absolute;
+  z-index: 1;
+  right: 12px;
+  bottom: 32px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  padding: 0.3em 0.25em 0.25em 0.55em;
+  transform: rotate(-9deg);
+  opacity: 0.85;
+}
+/* 穿孔 · 索引卡底部的归档孔 */
+.ad-hole {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: inset 0 1px 2px rgba(26, 21, 18, 0.35);
+}
+/* 整卡触发面（button 覆盖层）+ 抽出后浮出的调阅链接 */
+.ad-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ad-go {
+  position: absolute;
+  z-index: 3;
+  left: 14px;
+  bottom: 42px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  border-bottom: 1px solid var(--accent);
+  padding: 2px 5px;
+  background: var(--paper-warm); /* 垫底：长引文卡上依然可读 */
+  box-shadow: 0 0 0 3px var(--paper-warm);
+  text-decoration: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s var(--ease) 0.15s;
+}
+.ad-go:hover { color: var(--accent-soft); border-color: var(--accent-soft); }
+/* 悬停 / 键盘 / 抽出 */
+.ad-feat:hover,
+.ad-feat:has(.ad-hit:focus-visible) { transform: translateY(-16px); z-index: 40; }
+.ad-feat.ad-pulled { transform: translateY(-108px); z-index: 60; }
+.ad-feat.ad-pulled:hover { transform: translateY(-114px); }
+.ad-feat.ad-pulled .ad-go { opacity: 1; pointer-events: auto; }
+/* 抽屉面板：柜木用 ink 族深棕，五金收敛成一条拉手 */
+.ad-front {
+  position: relative;
+  z-index: 100;
+  height: 132px;
+  margin-top: -104px;
+  pointer-events: none;
+  background: linear-gradient(180deg, #5c4c3f 0%, #46392f 22%, #40342b 88%, #2c231d 100%);
+  border-radius: 4px;
+  box-shadow: 0 -7px 12px -6px rgba(26, 21, 18, 0.6),
+    0 26px 48px -18px rgba(26, 21, 18, 0.5),
+    inset 0 1px 0 rgba(249, 244, 232, 0.14);
+}
+.ad-front::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 8px;
+  background: linear-gradient(180deg, rgba(26, 21, 18, 0.5), rgba(26, 21, 18, 0));
+}
+.ad-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--paper-warm);
+  border: 2px solid rgba(26, 21, 18, 0.45);
+  border-radius: 3px;
+  padding: 9px 24px 8px;
+  text-align: center;
+  box-shadow: 0 3px 8px rgba(26, 21, 18, 0.4), inset 0 0 0 1px rgba(26, 21, 18, 0.15);
+  min-width: min(300px, 72%);
+}
+.ad-label-title {
+  font-style: italic;
+  font-variation-settings: "opsz" 26, "SOFT" 80, "WONK" 1;
+  font-size: clamp(15px, 1.8vw, 19px);
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.ad-label-code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.34em;
+  white-space: nowrap;
+  color: var(--ink-muted);
+  margin-top: 2px;
+}
+.ad-pull {
+  position: absolute;
+  left: 50%;
+  bottom: 13px;
+  transform: translateX(-50%);
+  width: 86px;
+  height: 14px;
+  border-radius: 0 0 12px 12px;
+  background: linear-gradient(180deg, #a4917b, #7d6b58 55%, #55463a);
+  box-shadow: 0 3px 5px rgba(26, 21, 18, 0.5), inset 0 1px 0 rgba(249, 244, 232, 0.4);
+}
+.ad-pull::before,
+.ad-pull::after {
+  content: "";
+  position: absolute;
+  top: -4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #b7a48c, #4d4033);
+}
+.ad-pull::before { left: 6px; }
+.ad-pull::after { right: 6px; }
+/* 便签：其余十二型（胶带贴在抽屉沿上） */
+.ad-slip {
+  position: absolute;
+  right: clamp(10px, 4vw, 48px);
+  top: -15px;
+  transform: rotate(2.6deg);
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  padding: 0.65em 0.9em 0.6em;
+  border-radius: 2px;
+  box-shadow: 0 6px 12px -4px rgba(26, 21, 18, 0.4);
+}
+.ad-slip::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -5px;
+  transform: translateX(-50%) rotate(-1deg);
+  width: 34px;
+  height: 10px;
+  background: rgba(249, 244, 232, 0.6);
+  border: 1px solid rgba(26, 21, 18, 0.08);
+}
+/* 入场：卡片依次落位（reduced-motion 直出终态） */
+@media (prefers-reduced-motion: no-preference) {
+  .ad-drawer:not(.ad-settled) .ad-card {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  .ad-drawer.ad-settled .ad-card {
+    animation: ad-settle 0.6s var(--ease) both;
+    animation-delay: calc(var(--i) * 26ms);
+  }
+  .ad-drawer.ad-settled .ad-blank { animation-name: ad-settle-blank; }
+}
+@keyframes ad-settle {
+  from { transform: translateY(30px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes ad-settle-blank {
+  from { transform: translateY(54px); opacity: 0; }
+  to { transform: translateY(24px); opacity: 1; }
+}
+.ad-hint {
+  margin-top: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.28em;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ad-hint::before { content: "⟷"; font-size: 13px; letter-spacing: 0; }
+@media (max-width: 620px) {
+  .ad-card { width: 208px; height: 296px; }
+  .ad-row { padding-top: 104px; }
+  .ad-feat { margin-right: -48px; }
+  .ad-blank { margin-right: -166px; }
+  .ad-feat.ad-pulled { transform: translateY(-84px); }
+  .ad-feat.ad-pulled:hover { transform: translateY(-84px); }
+  .ad-quote { font-size: 12px; line-height: 1.75; }
+  .ad-go { bottom: 40px; }
+  .ad-label { min-width: min(230px, 80%); padding: 8px 16px 7px; }
+  .ad-label-code { letter-spacing: 0.22em; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   明信片 · Postcards（components/home/postcards.tsx）
+   专栏两页做成两张可寄出的明信片：左半留言、右半地址栏 + 邮票 + 邮戳。
+   ═══════════════════════════════════════════════════════════════════ */
+.pc-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(18px, 2.6vw, 28px);
+}
+@media (max-width: 720px) { .pc-grid { grid-template-columns: 1fr; } }
+.pc-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 18px;
+  background: var(--paper-warm);
+  border: 1px solid var(--rule-strong);
+  border-radius: 3px;
+  padding: 18px 20px 16px;
+  min-height: 178px;
+  box-shadow: 0 16px 32px -18px rgba(26, 21, 18, 0.4);
+  text-decoration: none;
+  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.pc-card:nth-child(1) { transform: rotate(-0.5deg); }
+.pc-card:nth-child(2) { transform: rotate(0.4deg); }
+.pc-card:hover {
+  transform: translateY(-6px) rotate(0deg);
+  box-shadow: 0 24px 42px -20px rgba(26, 21, 18, 0.45);
+}
+/* 中缝分隔线 —— 明信片背面的那道竖线 */
+.pc-card::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 53%;
+  width: 1px;
+  background: var(--rule-strong);
+}
+.pc-msg { display: flex; flex-direction: column; min-width: 0; }
+.pc-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.pc-title {
+  font-style: italic;
+  font-variation-settings: "opsz" 30, "SOFT" 100, "WONK" 1;
+  font-size: 19px;
+  line-height: 1.35;
+  color: var(--ink);
+  margin-top: 12px;
+}
+.pc-line {
+  font-variation-settings: "opsz" 15, "SOFT" 40, "WONK" 0;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink-soft);
+  margin-top: 8px;
+}
+.pc-go {
+  margin-top: auto;
+  padding-top: 12px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+}
+.pc-card:hover .pc-go { color: var(--accent-soft); }
+.pc-side { position: relative; padding-left: 6px; }
+/* 邮票：齿孔用 paper 色点阵咬边 */
+.pc-stamp {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 46px;
+  height: 56px;
+  background: var(--paper);
+  padding: 4px;
+  background-image: radial-gradient(circle, var(--paper-deep) 1.6px, transparent 1.8px);
+  background-size: 8px 8px;
+  background-position: -4px -4px;
+}
+.pc-stamp-in {
+  width: 100%;
+  height: 100%;
+  background: var(--paper-deep);
+  border: 1px solid var(--rule-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.pc-stamp-char {
+  font-style: italic;
+  font-variation-settings: "opsz" 40, "SOFT" 100, "WONK" 1;
+  font-size: 21px;
+  color: var(--accent);
+  line-height: 1;
+}
+.pc-stamp-val {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.12em;
+  color: var(--ink-muted);
+}
+/* 邮戳：压在邮票左下角 */
+.pc-mark {
+  position: absolute;
+  top: 26px;
+  right: 30px;
+  width: 54px;
+  height: 54px;
+  border: 1.5px solid rgba(26, 21, 18, 0.38);
+  border-radius: 50%;
+  transform: rotate(-12deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+  color: rgba(26, 21, 18, 0.48);
+  pointer-events: none;
+}
+/* 地址栏三行 */
+.pc-addr {
+  position: absolute;
+  left: 6px;
+  right: 0;
+  bottom: 6px;
+}
+.pc-addr-to {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+}
+.pc-addr i {
+  display: block;
+  height: 22px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+@media (max-width: 720px) {
+  .pc-card { min-height: 168px; }
+}

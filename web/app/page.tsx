@@ -1,23 +1,74 @@
 import Link from "next/link";
+import { JsonLd } from "@/components/seo/json-ld";
+import { JournalIndex } from "@/components/home/journal-index";
 import { LandingHero } from "@/components/home/landing-hero";
 import { RecentLetters } from "@/components/home/recent-letters";
+import { SITE_URL } from "@/lib/site";
 import { APP_VERSION, getServerVersion } from "@/lib/version";
 
 /**
  * Landing · 作品集风格 + 会写字的刊头（v2）。
  *
  * 首屏交给 <LandingHero>：刊头逐字写完自己 → 大标上移 → 浮出体验预告与范例轮播，
- * 让初来者清楚「这是什么、会怎么过、能带走什么」。下方保留最近信件与版权页脚。
+ * 让初来者清楚「这是什么、会怎么过、能带走什么」。折叠首屏仍保持 16:9 一屏
+ * （hero + 信匣 tab + 目录暗号）；往下翻是目录页（档案/专栏），页脚移到文末——
+ * 印刷刊物的版权页本来就在最后。
  */
 export default async function LandingPage() {
   const serverVersion = await getServerVersion();
   return (
     <main className="relative z-10 min-h-screen flex flex-col">
-      {/* 首屏：hero flex-1 占满一屏；折叠态历史 tab + 页脚落底 = 16:9 一屏 */}
-      <LandingHero />
+      <JsonLd
+        data={{
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "WebSite",
+              "@id": `${SITE_URL}/#website`,
+              url: SITE_URL,
+              name: "OriSelf",
+              alternateName: "原自我",
+              description:
+                "免费、无需注册的对话式 MBTI / 16 型人格测试：不做选择题，和 AI 像写信一样聊十分钟，收到一封写给你的人格画像。",
+              inLanguage: "zh-CN",
+            },
+            {
+              "@type": "WebApplication",
+              "@id": `${SITE_URL}/#app`,
+              url: SITE_URL,
+              name: "OriSelf",
+              applicationCategory: "LifestyleApplication",
+              operatingSystem: "Web",
+              inLanguage: "zh-CN",
+              isAccessibleForFree: true,
+              offers: { "@type": "Offer", price: "0", priceCurrency: "CNY" },
+              description:
+                "对话式人格画像：通过 6–30 轮 AI 对话生成 MBTI 人格或专业方向报告，开源（Apache 2.0）。",
+            },
+          ],
+        }}
+      />
 
-      {/* Recent letters · local-only, shown only if there are entries */}
-      <RecentLetters />
+      {/* 第一屏 · 折叠态一屏（hero 弹性占满；信匣 tab 与目录暗号落底） */}
+      <div className="flex flex-col" style={{ minHeight: "100svh" }}>
+        <LandingHero />
+
+        {/* Recent letters · local-only, shown only if there are entries */}
+        <RecentLetters />
+
+        {/* 目录暗号 · 与信匣 tab 同一 register 的一行 mono，提示下面还有几页 */}
+        <div className="text-center pb-5">
+          <a
+            href="#contents"
+            className="font-mono text-[10px] tracking-widest uppercase text-ink-muted hover:text-accent transition-colors no-underline"
+          >
+            目录 ↓
+          </a>
+        </div>
+      </div>
+
+      {/* 第二屏 · 目录页（档案 × 十六型人格 / 专栏） */}
+      <JournalIndex />
 
       {/* Colophon — barely visible, edge of the page */}
       <footer className="px-6 sm:px-8 pb-3 pt-3">

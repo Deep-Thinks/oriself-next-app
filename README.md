@@ -2,6 +2,10 @@
 
 [English](./README_EN.md)
 
+> **OriSelf（原自我）是一个免费、无需注册的对话式 MBTI / 16 型人格测试**：不做选择题，
+> 和 AI 像写信一样聊十分钟（6–30 轮），收到一封写给你的信——一份人格画像。
+> 也可以聊聊你适合学什么专业。开源（Apache 2.0），中文。
+
 **可自部署的 OriSelf 完整实例。** 由 Next.js 前端 + FastAPI 后端组成，加载 [`Deep-Thinks/oriself-next`](https://github.com/Deep-Thinks/oriself-next) skill 作为产品本体。
 
 官方部署：[next.oriself.com](https://next.oriself.com)
