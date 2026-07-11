@@ -210,6 +210,11 @@ body::after {
    十六型索引卡：横向拨动、单张抽出。物件感全靠影子与卡纸层次，
    颜色只用既有 token（卡=paper-warm，待刊=paper-deep，章/红线=accent）。
    ═══════════════════════════════════════════════════════════════════ */
+.arc-drawer {
+  --card-w: 236px;
+  --card-h: 312px;
+  --spine: 46px; /* 书脊宽：叠压时露在外面的那一条 */
+}
 .arc-row {
   display: flex;
   align-items: flex-end;
@@ -225,12 +230,31 @@ body::after {
 .arc-row::-webkit-scrollbar { display: none; }
 .arc-row.arc-dragging { cursor: grabbing; }
 
+/* 分工（两次事故 + 一次交互返工换来的）：
+   外壳 .arc-card 钉在书脊位置不动，只吃入场位移——触发区 .arc-hit 在它里面，
+   卡片抽起来时鼠标不会「脱靶」（外壳跟着走的话：抬起→鼠标脱离→回落→又命中，来回抖）。
+   内层 .arc-face 吃交互位移（悬停抽起 / 点击钉住）。两层各占一个 transform，互不覆盖。 */
 .arc-card {
   position: relative;
   flex: 0 0 auto;
-  width: 236px;
-  height: 312px;
-  transition: transform 0.38s cubic-bezier(0.25, 0.9, 0.3, 1.15);
+  width: var(--card-w);
+  height: var(--card-h);
+}
+/* 槽底：卡面抽走后露出来的那块空位。没有它，抽出一张会直接露出左邻卡面的中段，
+   半截文字浮在墙里，像印坏了。 */
+.arc-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 3px 3px 0 0;
+  background: var(--paper-deep);
+  box-shadow: inset 6px 0 12px -10px rgba(26, 21, 18, 0.55);
+}
+.arc-face {
+  z-index: 1;
+  /* 回落别拖泥带水：横扫书脊时，还在下落的卡会挡住下一条书脊 */
+  transition: transform 0.26s cubic-bezier(0.25, 0.9, 0.3, 1.12);
 }
 .arc-face {
   display: block;
@@ -243,14 +267,48 @@ body::after {
   box-shadow: -6px 0 14px -8px rgba(26, 21, 18, 0.4),
     0 16px 30px -16px rgba(26, 21, 18, 0.35);
   overflow: hidden;
-  padding: 14px 16px 38px;
+  padding: 14px 16px 38px var(--spine);
   text-align: left;
 }
-/* 卡面横线 + 顶部红线 */
+/* 书脊：卡片叠压时唯一露在外面的一条，十六张连起来就是一排书签。
+   注意 writing-mode: vertical-rl 会把 flex 主轴转 90°——这里 row 的主轴是垂直方向，
+   所以 align-items 管的是水平居中、justify-content 管的是从顶部起排。 */
+.arc-tab {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: var(--spine);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 20px 0;
+  background: var(--paper-deep);
+  border-right: 1px solid rgba(26, 21, 18, 0.07);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 0.24em;
+  color: var(--ink-soft);
+}
+.arc-tab-no {
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  color: var(--ink-muted);
+}
+.arc-feat:hover .arc-tab,
+.arc-feat:has(.arc-hit:focus-visible) .arc-tab {
+  background: var(--paper-warm);
+  color: var(--accent);
+}
+/* 卡面横线 + 顶部红线：都从书脊右侧起画 */
 .arc-face::before {
   content: "";
   position: absolute;
-  inset: 62px 0 0;
+  inset: 62px 0 0 var(--spine);
   pointer-events: none;
   background: repeating-linear-gradient(
     180deg,
@@ -261,14 +319,14 @@ body::after {
 .arc-face::after {
   content: "";
   position: absolute;
-  left: 0;
+  left: var(--spine);
   right: 0;
   top: 37px;
   height: 2px;
   background: rgba(122, 31, 26, 0.55);
   pointer-events: none;
 }
-/* 卡片叠放：已刊卡露肩多、待刊卡只露脊 */
+/* 窄屏叠放：横向拨动，露肩多 */
 .arc-feat { margin-right: -54px; z-index: auto; }
 .arc-blank { margin-right: -182px; transform: translateY(24px); }
 .arc-card:last-child { margin-right: 0; }
@@ -378,7 +436,7 @@ body::after {
 .arc-go {
   position: absolute;
   z-index: 3;
-  left: 14px;
+  left: calc(var(--spine) + 12px);
   bottom: 42px;
   font-family: var(--font-mono);
   font-size: 11px;
@@ -394,12 +452,13 @@ body::after {
   transition: opacity 0.3s var(--ease) 0.15s;
 }
 .arc-go:hover { color: var(--accent-soft); border-color: var(--accent-soft); }
-/* 悬停 / 键盘 / 抽出 */
+/* 悬停 / 键盘：卡面抽起 + 外壳抬 z-index，整张卡面翻到右邻之前 = 弹出 */
 .arc-feat:hover,
-.arc-feat:has(.arc-hit:focus-visible) { transform: translateY(-16px); z-index: 40; }
-.arc-feat.arc-pulled { transform: translateY(-108px); z-index: 60; }
-.arc-feat.arc-pulled:hover { transform: translateY(-114px); }
-.arc-feat.arc-pulled .arc-go { opacity: 1; pointer-events: auto; }
+.arc-feat:has(.arc-hit:focus-visible) { z-index: 40; }
+.arc-feat:hover .arc-face,
+.arc-feat:has(.arc-hit:focus-visible) .arc-face { transform: translateY(-26px); }
+.arc-feat:hover .arc-go,
+.arc-feat:has(.arc-hit:focus-visible) .arc-go { opacity: 1; }
 /* 抽屉面板：柜木用 ink 族深棕，五金收敛成一条拉手 */
 .arc-front {
   position: relative;
@@ -513,11 +572,13 @@ body::after {
    类名不用 ad-* 前缀：广告拦截器与隐私扩展的通用规则会命中 .ad-card / .ad-row 这类
    名字，用 !important 把卡片隐藏掉，站点侧的任何兜底都压不过它。 */
 @media (prefers-reduced-motion: no-preference) {
-  .arc-drawer.arc-armed:not(.arc-settled) .arc-face {
+  /* 入场作用在外壳 .arc-card，交互作用在内层 .arc-face——两个 transform 各占一层，
+     谁也盖不住谁（v3.3.0 就是入场的 fill 长期占着交互那一层，把抽卡钉死的）。 */
+  .arc-drawer.arc-armed:not(.arc-settled) .arc-card {
     transform: translateY(30px);
   }
   /* 落位：回到基础位置，逐张错开 26ms */
-  .arc-drawer.arc-armed .arc-face {
+  .arc-drawer.arc-armed .arc-card {
     transition: transform 0.6s var(--ease);
     transition-delay: calc(var(--i) * 26ms);
   }
@@ -533,17 +594,65 @@ body::after {
   gap: 10px;
 }
 .arc-hint::before { content: "⟷"; font-size: 13px; letter-spacing: 0; }
+.arc-hint-wide { display: none; }
 @media (max-width: 620px) {
   .arc-card { width: 208px; height: 296px; }
   .arc-row { padding-top: 104px; }
   .arc-feat { margin-right: -48px; }
   .arc-blank { margin-right: -166px; }
-  .arc-feat.arc-pulled { transform: translateY(-84px); }
-  .arc-feat.arc-pulled:hover { transform: translateY(-84px); }
   .arc-quote { font-size: 12px; line-height: 1.75; }
-  .arc-go { bottom: 40px; }
+  /* 触屏没有悬停：卡片露着大字和引文，点哪张就直接进哪张的档案 */
+  .arc-go { bottom: 40px; opacity: 1; }
   .arc-label { min-width: min(230px, 80%); padding: 8px 16px 7px; }
   .arc-label-code { letter-spacing: 0.22em; }
+}
+
+/* ── 宽屏：十六张一字排开，像一排书签；悬停即弹出 ────────────────────
+   卡片改绝对定位，左偏移按序号均分抽屉净宽——最后一张右边缘正好贴齐，
+   每张露出的宽度 =（净宽 − 卡宽）/15，恰好是一条书脊。窄屏保留横向拨动。 */
+@media (min-width: 900px) {
+  /* 抽屉是件实物，挣脱 880px 正文栏宽（负 margin 对称外扩，仍居中于视口）。
+     书脊宽 = 相邻两张的间距——露在外面的正好只有书脊，卡面完全藏进右邻身后。 */
+  .arc-drawer {
+    width: min(1160px, calc(100vw - 96px));
+    margin-left: calc((100% - min(1160px, 100vw - 96px)) / 2);
+    margin-right: calc((100% - min(1160px, 100vw - 96px)) / 2);
+    --spine: calc((min(1160px, 100vw - 96px) - var(--card-w)) / 15);
+  }
+  .arc-row {
+    display: block;
+    position: relative;
+    /* 上方留出抽卡的行程：卡片要抽到书脊墙上方去 */
+    height: calc(210px + var(--card-h));
+    padding: 0;
+    overflow: visible;
+    cursor: default;
+  }
+  .arc-card {
+    position: absolute;
+    top: 210px;
+    left: calc(var(--i) * (100% - var(--card-w)) / 15);
+    margin: 0;
+  }
+  /* 卡面抽起 190px，升到书脊墙上方——墙的下半截因此空出一条「扫描带」：
+     鼠标沿书脊下缘横扫时不会被已弹出的卡面挡住，可以一张接一张地弹。
+     （抽得不够高时，弹出的卡正好盖住右邻三条书脊，中间那几张永远够不着。） */
+  .arc-feat:hover .arc-face,
+  .arc-feat:has(.arc-hit:focus-visible) .arc-face { transform: translateY(-190px); }
+  /* 触发区只占书脊那一列（不是整张卡）：整卡宽的触发区会连同右邻三条书脊一起盖掉。
+     向上延伸出抽卡行程，让鼠标从书脊走到抽起的卡面上时 hover 不断线。 */
+  .arc-hit {
+    inset: -190px auto 0 0;
+    width: var(--spine);
+  }
+  /* 外壳只是坐标容器，别吃指针事件——它有整卡那么宽，一旦 hover 抬到 z-index 40，
+     就会把右邻三条书脊整个罩住，鼠标横扫时永远跳不过去。接鼠标的只有卡面和书脊。 */
+  .arc-card { pointer-events: none; }
+  .arc-face,
+  .arc-hit { pointer-events: auto; }
+  .arc-hint::before { content: "☜"; }
+  .arc-hint-wide { display: inline; }
+  .arc-hint-narrow { display: none; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════

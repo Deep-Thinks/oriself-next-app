@@ -23,7 +23,6 @@ const RACK = [
 ] as const;
 
 export function ArchiveDrawer() {
-  const [pulled, setPulled] = useState<string | null>("infp");
   const [armed, setArmed] = useState(false);
   const [settled, setSettled] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -71,20 +70,7 @@ export function ArchiveDrawer() {
     return teardown;
   }, []);
 
-  // 初始把预抽出的 INFP 卡滚到抽屉中央
-  useEffect(() => {
-    const row = rowRef.current;
-    if (!row) return;
-    const card = row.querySelector<HTMLElement>(".arc-pulled");
-    if (card) {
-      row.scrollLeft = Math.max(
-        0,
-        card.offsetLeft - (row.clientWidth - card.offsetWidth) / 2,
-      );
-    }
-  }, []);
-
-  // 鼠标横向拖拽拨卡（触屏走原生滚动，不接管）
+  // 鼠标横向拖拽拨卡（窄屏才有横向滚动；宽屏十六张一次排开，不需要拨）
   useEffect(() => {
     const row = rowRef.current;
     if (!row) return;
@@ -126,9 +112,6 @@ export function ArchiveDrawer() {
     };
   }, []);
 
-  const toggle = (id: string) =>
-    setPulled((p) => (p === id ? null : id));
-
   return (
     <div
       ref={drawerRef}
@@ -149,16 +132,22 @@ export function ArchiveDrawer() {
               </div>
             );
           }
-          const isPulled = pulled === id;
           return (
             <div
               key={code}
-              className={`arc-card arc-feat${isPulled ? " arc-pulled" : ""}`}
+              className="arc-card arc-feat"
               role="listitem"
               style={style}
             >
+              {/* 卡面：抽起来的是它。卡面上的东西都得长在它里面——挂在外壳上的话，
+                  卡面抽走了它还留在原地，被抽屉木板挡得死死的。 */}
               <span className="arc-face">
-                <span className="arc-code">OS·{t.code} · 档案 № {t.no}</span>
+                {/* 书脊：叠压时唯一露在外面的部分，十六张连成一排书签 */}
+                <span className="arc-tab" aria-hidden>
+                  {t.code}
+                  <span className="arc-tab-no">№ {t.no}</span>
+                </span>
+                <span className="arc-code">档案 № {t.no}</span>
                 <span className="arc-type">{t.code}</span>
                 <span className="arc-alias">{t.alias}</span>
                 <span className="arc-line">{t.epithetLines.join("")}</span>
@@ -167,23 +156,18 @@ export function ArchiveDrawer() {
                   已收录
                 </span>
                 <span className="arc-hole" aria-hidden />
+                {/* 卡面上的调阅提示。真正的点击面是下面那条覆盖书脊的 Link——
+                    鼠标从书脊挪到这个小链接上时容易擦过卡面边缘丢一帧 hover，
+                    卡片一回落它就跑了，所以它只当指示牌，不承担点击。 */}
+                <span className="arc-go" aria-hidden>
+                  调出这一篇 →
+                </span>
               </span>
-              <button
-                type="button"
-                className="arc-hit"
-                aria-expanded={isPulled}
-                aria-label={isPulled ? `推回 ${t.code} 索引卡` : `抽出 ${t.code} 索引卡`}
-                onClick={() => toggle(id)}
-              />
               <Link
                 href={`/types/${id}`}
-                className="arc-go"
-                tabIndex={isPulled ? 0 : -1}
-                aria-hidden={!isPulled}
-                onClick={(e) => e.stopPropagation()}
-              >
-                调出这一篇 →
-              </Link>
+                className="arc-hit"
+                aria-label={`调出 ${t.code}（${t.alias}）的档案`}
+              />
             </div>
           );
         })}
@@ -203,7 +187,10 @@ export function ArchiveDrawer() {
         <span className="arc-pull" />
       </div>
 
-      <p className="arc-hint">拨动抽屉 · 点卡抽出</p>
+      <p className="arc-hint">
+        <span className="arc-hint-wide">划过书脊 · 卡片弹出</span>
+        <span className="arc-hint-narrow">拨动抽屉 · 点卡抽出</span>
+      </p>
     </div>
   );
 }
