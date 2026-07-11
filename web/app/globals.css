@@ -501,23 +501,40 @@ body::after {
   background: rgba(249, 244, 232, 0.6);
   border: 1px solid rgba(26, 21, 18, 0.08);
 }
-/* 入场：卡面依次落位。动画放在内层 .ad-in——外壳 .ad-card 的 transform
-   属于交互态（悬停/抽出），若被 animation fill 长期占用会把抽卡钉死
-   （v3.3.0 线上事故：fill-mode both 覆盖 .ad-pulled，交互全哑）。
-   backwards 只管延迟期的隐藏，动画结束即交还 cascade。 */
+/* 入场：卡面依次落位。三条硬约束，都是拿线上事故换来的：
+
+   1) 卡面的「可见」必须是静态终态，不能由动效撑着。用 transition 而不是
+      animation——transition 的终态就是元素基础值（opacity 1 / 无位移），引擎
+      不跑、被禁、被跳过，卡片直接落在终态上；animation 一旦不推进，卡片就钉死
+      在 from 帧（v3.3.2 线上：cls 已是 .ad-settled，卡面却还停在 opacity:0，
+      整只抽屉是空的）。
+   2) 隐藏只在 .ad-armed 下生效——该类由组件在「抽屉尚在视野外」时才打。JS 没跑到
+      / hydration 失败时，抽屉里必须有卡；SSR 文案也不该被 opacity:0 藏着。
+   3) 动效只碰内层 .ad-in——外壳 .ad-card 的 transform 属于交互态（悬停/抽出），
+      被动效长期占用会把抽卡钉死（v3.3.0 线上：fill-mode both 盖掉 .ad-pulled）。 */
 @media (prefers-reduced-motion: no-preference) {
-  .ad-drawer:not(.ad-settled) .ad-in {
+  .ad-drawer.ad-armed:not(.ad-settled) .ad-in {
     transform: translateY(30px);
     opacity: 0;
   }
-  .ad-drawer.ad-settled .ad-in {
-    animation: ad-settle 0.6s var(--ease) backwards;
-    animation-delay: calc(var(--i) * 26ms);
+  /* 卡面藏起时，预抽卡浮出的「调阅」链接不能独自留在盒子上 */
+  .ad-drawer.ad-armed:not(.ad-settled) .ad-go {
+    opacity: 0;
   }
-}
-@keyframes ad-settle {
-  from { transform: translateY(30px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  /* 落位：回到基础值，逐张错开 26ms */
+  .ad-drawer.ad-armed.ad-settled .ad-in {
+    transition:
+      opacity 0.6s var(--ease),
+      transform 0.6s var(--ease);
+    transition-delay: calc(var(--i) * 26ms);
+  }
+  /* 护栏：落位时长走完后由组件打上，强拆动效、钉死终态。
+     动效引擎不跑/被暂停时，这是「抽屉里一定有卡」的最后一道保证。 */
+  .ad-drawer.ad-armed.ad-settled.ad-done .ad-in {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }
 .ad-hint {
   margin-top: 16px;

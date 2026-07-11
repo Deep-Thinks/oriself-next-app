@@ -13,6 +13,10 @@ import { TYPE_PROFILES } from "@/lib/type-profiles";
  * 显隐只由 CSS 的 .ad-pulled 控制。样式见 globals.css 的 .ad-*。
  */
 
+/** 落位耗时：过渡 0.6s + 末张错开 15×26ms，留一点余量。
+    到点后强制落终态（.ad-done），卡片可见性不押在动效引擎上。 */
+const ENTER_MS = 1200;
+
 /** 铅字架顺序：字母序，与真实卡柜的检索习惯一致。
     已刊/待刊由 TYPE_PROFILES 是否收录自动判定——新档案合入即点亮。 */
 const RACK = [
@@ -24,31 +28,67 @@ const RACK = [
 
 export function ArchiveDrawer() {
   const [pulled, setPulled] = useState<string | null>("infp");
+  const [armed, setArmed] = useState(false);
   const [settled, setSettled] = useState(false);
+  const [done, setDone] = useState(false);
   const rowRef = useRef<HTMLDivElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   // 拖拽后的 click 抑制：拨卡收手时不误触抽卡
   const dragRef = useRef({ down: false, sx: 0, sl: 0, moved: false });
 
-  // 入场：滚进视野后卡片依次落位（reduced-motion 由 CSS 直出终态）
+  // 入场：滚进视野后卡片依次落位。
+  //
+  // 抽屉里必须有卡——空木盒是事故，不是动效的中间态（v3.3.2 线上：动画没推进，卡片
+  // 钉死在 from 帧）。所以可见性四层兜底，每层都不依赖上一层：
+  //   1. CSS 默认直出卡面；藏起来只在 .ad-armed 下生效 → JS 没跑/hydration 失败也有卡
+  //   2. arm 只在「抽屉还在视野外」时打 → JS 到得太晚也不会把已在眼前的卡藏掉
+  //   3. arm 之后由 IO + scroll 双路解除 → 观察器失灵/漏触发时，滚动照样把卡放出来
+  //   4. 解除后 ENTER_MS 强制落终态（见下一个 effect）→ 动效引擎不跑也一定看得见
   useEffect(() => {
     const el = drawerRef.current;
-    if (!el || !("IntersectionObserver" in window)) {
+    if (!el) return;
+    // 已在视野里：直接落终态，不播（否则卡片会先现身再被藏起来闪一下）
+    const reached = () =>
+      el.getBoundingClientRect().top <= window.innerHeight * 0.95;
+    if (reached() || !("IntersectionObserver" in window)) {
       setSettled(true);
       return;
     }
+    setArmed(true);
+
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      setSettled(true);
+      teardown();
+    };
+    const onScroll = () => {
+      if (reached()) release();
+    };
     const io = new IntersectionObserver(
       (es) => {
-        if (es.some((e) => e.isIntersecting)) {
-          setSettled(true);
-          io.disconnect();
-        }
+        if (es.some((e) => e.isIntersecting)) release();
       },
-      { threshold: 0.18 },
+      { threshold: 0.05 },
     );
+    const teardown = () => {
+      io.disconnect();
+      // capture：滚动事件不冒泡，页面若在内层容器里滚动也能听到
+      window.removeEventListener("scroll", onScroll, true);
+    };
     io.observe(el);
-    return () => io.disconnect();
+    window.addEventListener("scroll", onScroll, { passive: true, capture: true });
+    return teardown;
   }, []);
+
+  // 落位时间一到就钉死终态：过渡跑完了它什么也不改，过渡没跑（引擎被禁/暂停/异常）
+  // 它把卡片直接放出来——抽屉绝不允许停在空盒状态。
+  useEffect(() => {
+    if (!settled) return;
+    const t = window.setTimeout(() => setDone(true), ENTER_MS);
+    return () => window.clearTimeout(t);
+  }, [settled]);
 
   // 初始把预抽出的 INFP 卡滚到抽屉中央
   useEffect(() => {
@@ -111,7 +151,7 @@ export function ArchiveDrawer() {
   return (
     <div
       ref={drawerRef}
-      className={`ad-drawer${settled ? " ad-settled" : ""}`}
+      className={`ad-drawer${armed ? " ad-armed" : ""}${settled ? " ad-settled" : ""}${done ? " ad-done" : ""}`}
     >
       <div ref={rowRef} className="ad-row" role="list" aria-label="十六型人格索引卡抽屉">
         {RACK.map((code, i) => {
