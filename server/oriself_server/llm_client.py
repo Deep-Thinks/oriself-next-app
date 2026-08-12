@@ -135,6 +135,8 @@ class OpenAICompatibleBackend(LLMBackend):
         model: str,
         provider_name: str = "openai_compatible",
         stream_extra: Optional[dict] = None,
+        tools_extra: Optional[dict] = None,
+        report_extra: Optional[dict] = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
@@ -147,6 +149,15 @@ class OpenAICompatibleBackend(LLMBackend):
         # 首 token 延迟 ~8s，关到 low 后 ~1.6s 且回复质量不降。pass1 已快、报告要质量，
         # 故都保留默认思考。
         self.stream_extra = stream_extra or {}
+        # v3.4 · 只并入 **pass1**(call_tools_only) 请求体的额外字段。
+        # deepseek 用它关掉思考：v4 系列在思考模式下拒绝 tool_choice="required"
+        # （400 "Thinking mode does not support this tool_choice"），而 pass1 的
+        # 契约就是强制选工具。pass2 与报告轮不受影响，思考照常开。
+        self.tools_extra = tools_extra or {}
+        # v3.4 · 只并入**报告轮**(complete_text)请求体的额外字段。
+        # deepseek 用它把思考调到 xhigh：报告是一次性、非流式、用户等得起的产物，
+        # 质量优先于延迟。
+        self.report_extra = report_extra or {}
 
     # ---- 对话轮 · 流式文本 ----
     async def stream_text(
@@ -216,6 +227,8 @@ class OpenAICompatibleBackend(LLMBackend):
             "model": self.model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
         }
+        if self.report_extra:
+            payload.update(self.report_extra)
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
@@ -246,6 +259,8 @@ class OpenAICompatibleBackend(LLMBackend):
         provider 兼容性：
         - OpenAI / DeepSeek / Qwen DashScope / Kimi 都支持 tool_choice="required"。
         - Gemini-302 走 OpenAI compatible 路径同样支持。
+        - deepseek-v4 系列要额外带 `thinking={"type":"disabled"}`（见 tools_extra），
+          否则思考模式下直接 400 拒绝 required。
         - 任何 provider 报错（4xx/5xx）直接抛异常，不兜底——这是 v2.6 ADR-6。
         """
         payload: dict = {
@@ -255,6 +270,8 @@ class OpenAICompatibleBackend(LLMBackend):
             "tool_choice": tool_choice,
             "stream": False,
         }
+        if self.tools_extra:
+            payload.update(self.tools_extra)
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
@@ -671,7 +688,9 @@ PROVIDER_PRESETS: dict[str, dict] = {
             or "https://api.deepseek.com/v1"
         ),
         "model_env": "ORISELF_DEEPSEEK_MODEL",
-        "default_model": "deepseek-chat",
+        # v3.4 · 官方端点 2026-08 只剩 deepseek-v4-flash / deepseek-v4-pro，
+        # 旧默认 deepseek-chat 已下线（GET /v1/models 自查）。
+        "default_model": "deepseek-v4-flash",
         # api_key 同时接受 ORISELF_DEEPSEEK_API_KEY / DEEPSEEK_API_KEY
         "api_key_env": "ORISELF_DEEPSEEK_API_KEY",
         "api_key_env_fallback": "DEEPSEEK_API_KEY",
@@ -718,8 +737,80 @@ def make_backend(provider: str) -> LLMBackend:
         base_url=preset["base_url"],
         model=model,
         provider_name=provider,
-        stream_extra=_gemini_stream_extra() if provider == "gemini" else None,
+        stream_extra=(
+            _gemini_stream_extra()
+            if provider == "gemini"
+            else _deepseek_stream_extra() if provider == "deepseek" else None
+        ),
+        tools_extra=_deepseek_tools_extra() if provider == "deepseek" else None,
+        report_extra=_deepseek_report_extra() if provider == "deepseek" else None,
     )
+
+
+# deepseek 官方 API 接受的 reasoning_effort 枚举（无效值直接 400）：
+# none / minimal / low / medium / high / xhigh / max
+_DEEPSEEK_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+
+def _deepseek_effort(env_name: str, default: str) -> Optional[dict]:
+    """读一个 reasoning_effort 档位 env，非法值直接报错（别静默退回默认档）。"""
+    level = os.environ.get(env_name, default).strip()
+    if not level:
+        return None  # 显式设空 = 不带该参数，用 provider 默认思考
+    if level not in _DEEPSEEK_EFFORTS:
+        raise RuntimeError(
+            f"{env_name}={level!r} 不是合法的 deepseek reasoning_effort；"
+            f"可选：{sorted(_DEEPSEEK_EFFORTS)}"
+        )
+    return {"reasoning_effort": level}
+
+
+def _deepseek_stream_extra() -> Optional[dict]:
+    """v3.4 · 对话轮(pass2)的思考档位，默认 xhigh。
+
+    实测（deepseek-v4-flash，真实 ~9.5k token 的 pass2 prompt，各档 n=5）：
+        档位        reasoning_tokens 中位   非流式延迟中位
+        默认(不带)          1184              13.9s
+        xhigh                385               5.7s
+        high                 672               8.7s
+        low                  198               3.3s
+        disabled               0               1.3s
+    流式 TTFT：xhigh 3.6–14.3s（均值 7.7s）。比生产 gemini(medium, ~4.1s) 慢，
+    是拿延迟换思考深度的自觉选择。要压延迟就把 env 调到 low/minimal。
+
+    **不要为了快把它关到 disabled**：v3.2.3 的教训是 gemini 关思考后二选一提问率
+    从 31% 涨到 74.6%（见根 CLAUDE.md 变更记录）——思考预算是模型抵抗"照抄
+    context 里句式模板"的本钱。
+    """
+    return _deepseek_effort("ORISELF_DEEPSEEK_TURN_THINKING", "xhigh")
+
+
+def _deepseek_report_extra() -> Optional[dict]:
+    """v3.4 · 报告轮(complete_text)的思考档位，默认 xhigh。
+
+    报告是一次性非流式产物（用户已在等待页），质量优先于延迟。
+    """
+    return _deepseek_effort("ORISELF_DEEPSEEK_REPORT_THINKING", "xhigh")
+
+
+def _deepseek_tools_extra() -> Optional[dict]:
+    """v3.4 · pass1 关掉 deepseek 的思考，否则 tool_choice="required" 被拒。
+
+    deepseek-v4-flash / v4-pro 默认开思考，此时官方 API 对 tool_choice
+    ="required"（及 object 形式）直接返 400 "Thinking mode does not support
+    this tool_choice"。pass1 的契约就是强制选工具（v2.6 ADR-2），所以这里必须
+    关思考。实测关掉后 pass1 一次成功、0.8s 返回合法 read_skill 调用——pass1 只
+    是选文件，本来也不需要思考。
+
+    只作用于 pass1(call_tools_only)：对话轮(stream_text)与报告轮(complete_text)
+    保持默认思考。**不要**顺手把对话轮的思考也关掉——v3.2.3 的教训是 gemini 关
+    思考后二选一提问率从 31% 涨到 74.6%（见根 CLAUDE.md 变更记录）。
+    设 `ORISELF_DEEPSEEK_PASS1_THINKING=1` 可关闭本行为（回默认思考，pass1 会
+    因此 400——仅用于验证 provider 是否已放开该限制）。
+    """
+    if os.environ.get("ORISELF_DEEPSEEK_PASS1_THINKING"):
+        return None
+    return {"thinking": {"type": "disabled"}}
 
 
 def _gemini_stream_extra() -> Optional[dict]:
